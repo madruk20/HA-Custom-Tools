@@ -1,0 +1,20 @@
+automation:
+  # ========================================
+  # AI VOICE TIMER NOTIFICATIONS
+  # ========================================
+  - alias: Voice Timer Notifications
+    description: Routes timer finish notifications to the speaker that started it
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+    actions:
+      - action: openai_tts.say
+        target:
+          entity_id: >
+            {% set device_map = {
+              'YOUR_BEDROOM_SPEAKER_DEVICE_ID': 'media_player.home_assistant_voice_bedroom_2',
+              'YOUR_PLAYROOM_SPEAKER_DEVICE_ID': 'media_player.arcade_soundbar'
+            } %} {{ device_map.get(trigger.event.data.device_id,
+            'media_player.home_assistant_voice_bedroom_2') }}
+        data:
+          message: Your timer is finished!
