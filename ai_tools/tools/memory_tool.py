@@ -6,7 +6,7 @@ from homeassistant.helpers import llm
 
 class PersonalMemorySearchTool(llm.Tool):
     name = "search_personal_records"
-    description = "Search your personal archives, historical server logs, and household journals for specific past events or facts."
+    description = "Search personal archives, historical server logs, and household journals for specific past events or facts."
                    
     parameters = vol.Schema({
         vol.Required(

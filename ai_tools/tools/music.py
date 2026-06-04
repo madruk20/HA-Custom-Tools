@@ -4,10 +4,11 @@ import asyncio
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import llm, intent
+from homeassistant.helpers import llm
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.area_registry as ar
 import homeassistant.helpers.entity_registry as er
+from homeassistant.core import ServiceCall, ServiceResponse, SupportsResponse
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -174,8 +175,7 @@ async def async_execute_media_action(
             return {"result": f"Successfully reverted to the previous track on {resolved_name}."}
         except Exception as e:
             return {"error": f"Failed to return to previous track: {str(e)}"}
-
-
+    
 # =====================================================================
 # LLM TOOL WRAPPING DECORATOR
 # =====================================================================
@@ -189,7 +189,7 @@ class MusicPlayerTool(llm.Tool):
             "action", 
             description="The media control action to perform. Choose from: 'play', 'pause', 'next', or 'previous'."
         ): vol.In(["play", "pause", "next", "previous"]),
-        vol.Optional(
+        vol.Required(
             "query",
             description=(
                 "If the user mentions an artist, format strictly as 'Artist - Track' or 'Artist - Album'. "
@@ -223,93 +223,33 @@ class MusicPlayerTool(llm.Tool):
 # =====================================================================
 # HOME ASSISTANT NATIVE INTENT OVERRIDES
 # =====================================================================
-class HassMediaSearchAndPlayOverride(intent.IntentHandler):
-    """Handles local custom sentence matches for playing specific music."""
-    def __init__(self, hass: HomeAssistant):
-        super().__init__()
-        self.intent_type = "HassMediaSearchAndPlay"
-        self.hass = hass
 
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        slots = intent_obj.slots
-        
-        # Extract the wildcard search string
-        query = slots.get("query", {}).get("value")
-        
-        # Extract location boundaries if provided
-        room = slots.get("area", {}).get("value")
-        device_name = slots.get("name", {}).get("value")
-        
-        # Pipe it into the unified smart core
-        res = await async_execute_media_action(
-            self.hass, 
-            action="play", 
-            query=query,
-            target_room=room, 
-            device_name=device_name, 
-            context=intent_obj.context
-        )
-        
-        response = intent_obj.create_response()
-        response.async_set_speech(res.get("result", res.get("error", "Action completed")))
-        return response
+def register_media_service(hass: HomeAssistant):
+    """Registers the unified media core as a native Home Assistant service."""
+    async def handle_media_command(call: ServiceCall) -> ServiceResponse:
 
-class HassMediaPauseOverride(intent.IntentHandler):
-    """Handles local custom sentence matches for pausing media."""
-    def __init__(self, hass: HomeAssistant):
-        super().__init__()
-        self.intent_type = "HassMediaPause"
-        self.hass = hass
+        try:
 
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        slots = intent_obj.slots
-        room = slots.get("area", {}).get("value")
-        name = slots.get("name", {}).get("value")
-        
-        res = await async_execute_media_action(
-            self.hass, action="pause", target_room=room, device_name=name, context=intent_obj.context
-        )
-        
-        response = intent_obj.create_response()
-        response.async_set_speech(res.get("result", res.get("error", "Action completed")))
-        return response
+            res = await async_execute_media_action(
+                    hass, 
+                    action=call.data.get("action"), 
+                    query=call.data.get("query"), 
+                    target_room=call.data.get("room"), 
+                    device_name=call.data.get("device_name"), 
+                    context=call.context
+                )
+            
+            return {"result": res.get("result", res.get("error", "Action completed"))}
+            
+        except Exception as e:
+                # If the code crashes, we return the error string as a 'result' 
+                # so the template engine doesn't crash on an 'undefined' variable.
+                _LOGGER.error(f"[MusicCore] SERVICE CRASH: {str(e)}")
+                return {"result": f"Internal Error: {str(e)}"}        
+            # Services that return responses MUST return a dictionary
 
-class HassMediaNextOverride(intent.IntentHandler):
-    """Overrides local sentence matches for skipping tracks."""
-    def __init__(self, hass: HomeAssistant):
-        super().__init__()
-        self.intent_type = "HassMediaNext"
-        self.hass = hass
-
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        slots = intent_obj.slots
-        room = slots.get("area", {}).get("value")
-        name = slots.get("name", {}).get("value")
-        
-        res = await async_execute_media_action(
-            self.hass, action="next", target_room=room, device_name=name, context=intent_obj.context
-        )
-        
-        response = intent_obj.create_response()
-        response.async_set_speech(res.get("result", res.get("error", "Action completed")))
-        return response
-
-class HassMediaPreviousOverride(intent.IntentHandler):
-    """Overrides local sentence matches for regressing tracks with smart double-tap functionality."""
-    def __init__(self, hass: HomeAssistant):
-        super().__init__()
-        self.intent_type = "HassMediaPrevious"
-        self.hass = hass
-
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        slots = intent_obj.slots
-        room = slots.get("area", {}).get("value")
-        name = slots.get("name", {}).get("value")
-        
-        res = await async_execute_media_action(
-            self.hass, action="previous", target_room=room, device_name=name, context=intent_obj.context
-        )
-        
-        response = intent_obj.create_response()
-        response.async_set_speech(res.get("result", res.get("error", "Action completed")))
-        return response
+    hass.services.async_register(
+        "ai_tools", 
+        "execute_media",
+        handle_media_command
+    )

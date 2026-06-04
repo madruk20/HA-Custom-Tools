@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import re
 from pathlib import Path
@@ -7,41 +8,17 @@ from pathlib import Path
 import homeassistant.util.dt as dt_util
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import llm
-from homeassistant.helpers import intent
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.area_registry as ar
-from .tools.music import (
-    HassMediaNextOverride, 
-    HassMediaPreviousOverride, 
-    HassMediaSearchAndPlayOverride,
-    HassMediaPauseOverride
-)
 
 # Import custom tools
 from .tools.web_search_brave import WebSearchTool
 from .tools.alarms import AlarmManagerTool
 from .tools.price_lookup import PriceLookupTool
-from .tools.music import MusicPlayerTool
+from .tools.music import MusicPlayerTool, register_media_service
 
 _LOGGER = logging.getLogger(__name__)
 
-# ==========================================
-# 0.1 CORE PROMPT MEMORY PATCH 
-# ==========================================
-def apply_prompt_patch():
-    """Overwrites the Assist API preamble to remove core text redundancies safely."""
-    try:
-        # Returning an empty list synchronously satisfies the unpacking requirement
-        def custom_preamble(self, llm_context):
-            return []
-        
-        llm.AssistAPI._async_get_preable = custom_preamble
-        _LOGGER.info("Successfully deployed synchronous preamble cleanup to AssistAPI!")
-            
-    except Exception as e:
-        _LOGGER.error(f"Failed to patch LLM prompt: {e}")
-
-apply_prompt_patch()
 
 # ==========================================
 # 0.2 OLLAMA HTTP PAYLOAD PATCH (STREAM AWARE)
@@ -52,100 +29,118 @@ except ImportError:
     ollama = None
 
 def apply_ollama_client_patch():
-    """Intercepts outgoing payload to destroy thinking tokens, and formats incoming streaming metrics."""
-    # Safety Check: If the top-level import failed on boot, abort the patch cleanly
+    """Intercepts outgoing payload, normalizes to dicts, scrubs HA redundancies, and kills thinking tokens."""
     if ollama is None:
         _LOGGER.debug("Ollama python client not found, skipping patch.")
         return
 
     try:
-        # Verify the target class method exists in this version of the ollama library
         if not hasattr(ollama.AsyncClient, "chat"):
             _LOGGER.warning("Ollama AsyncClient does not have 'chat' method. Skipping patch.")
             return
         
-        # Save a reference to the unpatched, native chat method
         original_chat = ollama.AsyncClient.chat
         
-        # Define the asynchronous wrapper that overrides the native chat method
         async def patched_chat(self, model, messages=None, **kwargs):
             
-            # --- 1. THE OUTGOING PAYLOAD SCRUBBER ---
-            # We intercept context history before it is dispatched to Ollama.
-            # This strips out past raw thinking segments so the model doesn't get confused by its own logs.
+            # --- THE OUTGOING PAYLOAD SCRUBBER ---
             if messages:
+                normalized_messages = []
                 for msg in messages:
-                    # Case A: Handle structured Pydantic object messages (modern Ollama clients)
-                    if not isinstance(msg, dict):
-                        if getattr(msg, "role", None) == "assistant":
-                            # Obliterate native thinking property values
-                            if hasattr(msg, "thinking"): setattr(msg, "thinking", None)
-                            if hasattr(msg, "thinking_content"): setattr(msg, "thinking_content", None)
-                            
-                            # Strip any raw inline <think> tags out of the string content field
-                            content = getattr(msg, "content", None)
-                            if isinstance(content, str):
-                                clean_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
-                                setattr(msg, "content", clean_content.strip())
-                                
-                    # Case B: Handle legacy standard Python dictionary payloads
+                    # Force conversion of Pydantic objects or custom classes to clean dicts
+                    if hasattr(msg, "model_dump"):
+                        m_dict = msg.model_dump()
+                    elif hasattr(msg, "__dict__"):
+                        m_dict = {k: v for k, v in msg.__dict__.items() if v is not None}
                     elif isinstance(msg, dict):
-                        if msg.get("role") == "assistant":
-                            # Strip out any keys related to thinking arrays
-                            msg.pop("thinking", None)
-                            msg.pop("thinking_content", None)
+                        m_dict = msg.copy()
+                    else:
+                        m_dict = dict(msg)
+                    
+                    # 1. SYSTEM PROMPT SCRUBBER (Dynamic HA removal + Clock Erasure)
+                    if m_dict.get("role") == "system" and isinstance(m_dict.get("content"), str):
+                        sys_text = m_dict["content"]
+                        
+                        # A. Future-proof removal of redundant core instructions
+                        from homeassistant.helpers import llm as ha_llm
+                        # Remove tool usage rules
+                        if hasattr(ha_llm, "DEVICE_CONTROL_TOOL_USAGE_PROMPT"):
+                            sys_text = sys_text.replace(ha_llm.DEVICE_CONTROL_TOOL_USAGE_PROMPT, "")
+                        # Remove live context instructions
+                        if hasattr(ha_llm, "DYNAMIC_CONTEXT_PROMPT"):
+                            sys_text = sys_text.replace(ha_llm.DYNAMIC_CONTEXT_PROMPT, "")
+                        
+                        # B. Erase the exact-second volatile clock
+                        sys_text = re.sub(
+                            r"\s*Current time is \d{2}:\d{2}:\d{2}\. Today's date is \d{4}-\d{2}-\d{2}\.", 
+                            "", 
+                            sys_text
+                        )
+                        
+                        m_dict["content"] = sys_text.strip()
+                    # 2. ASSISTANT THINKING SCRUBBER (Removes raw <think> tags)
+                    if m_dict.get("role") == "assistant" and isinstance(m_dict.get("content"), str):
+                        m_dict.pop("thinking", None)
+                        m_dict.pop("thinking_content", None)
+                        m_dict["content"] = re.sub(r'<think>.*?</think>', '', m_dict["content"], flags=re.DOTALL).strip()
+                        
+                    normalized_messages.append(m_dict)
+                
+                # Override the outgoing messages payload with our cleanly scrubbed dictionaries
+                messages = normalized_messages
                             
-                            # Perform the regex scrub over the string block
-                            if "content" in msg and isinstance(msg["content"], str):
-                                clean_content = re.sub(r'<think>.*?</think>', '', msg["content"], flags=re.DOTALL)
-                                msg["content"] = clean_content.strip()
-                            
-            # --- 2. TRANSMIT REQUEST TO API ENGINE ---
-            # Capture if the caller expected a continuous stream or a single response block
+            # --- TRANSMIT REQUEST TO API ENGINE ---
             is_stream = kwargs.get("stream", False)
+            # Log the system prompt sent to ollama
+            #try:
+            #    for msg in messages:
+            #        if msg.get("role") == "system":
+            #            _LOGGER.info(f"🔍 FINAL OLLAMA SYSTEM PROMPT:\n{msg.get('content')}")
+            #            break
+            #except Exception:
+            #    pass
+            
             response = await original_chat(self, model=model, messages=messages, **kwargs)
             
-            # --- 3. INCOMING METRICS CAPTURE ---
-            # Path A: Standard Request (Non-Streaming)
+            # --- INCOMING METRICS CAPTURE ---
             if not is_stream:
                 try:
-                    # Safe parameter extraction checking both dictionaries and dynamic class objects
                     p_tokens = response.get("prompt_eval_count", 0) if isinstance(response, dict) else getattr(response, "prompt_eval_count", 0)
+                    p_time = (response.get("prompt_eval_duration", 0) if isinstance(response, dict) else getattr(response, "prompt_eval_duration", 0)) / 1e9
                     gen_tokens = response.get("eval_count", 0) if isinstance(response, dict) else getattr(response, "eval_count", 0)
-                    
-                    # Convert duration parameter from nanoseconds up to standard seconds float
                     total_time = (response.get("total_duration", 0) if isinstance(response, dict) else getattr(response, "total_duration", 0)) / 1e9
-                    speed = f"{(gen_tokens / total_time):.2f} t/s" if total_time > 0 else "N/A"
                     
-                    _LOGGER.info(f"🤖 OLLAMA VERBOSE: Prompt: {p_tokens} tokens | Generated: {gen_tokens} tokens | Time: {total_time:.2f}s | Speed: {speed}")
+                    # Visual Cache Hit Detector
+                    cache_status = f"✅ CACHED ({p_time:.2f}s)" if p_time < 0.15 else f"❌ MISSED ({p_time:.2f}s)"
+                    speed = f"{(gen_tokens / (total_time - p_time)):.2f} t/s" if (total_time - p_time) > 0 else "N/A"
+                    
+                    # === UPDATED: ADDED TOTAL TIME BACK ===
+                    _LOGGER.info(f"🤖 OLLAMA VERBOSE: Prompt: {p_tokens}t {cache_status} | Generated: {gen_tokens}t | Speed: {speed} | Total: {total_time:.2f}s")
                 except Exception:
-                    pass # Ensure metrics engine errors never interrupt home automation events
+                    pass 
                 return response
                 
-            # Path B: Asynchronous Stream Wrapping
             else:
-                # We wrap the native generator in a tracking proxy function.
-                # This lets us seamlessly inspect chunks without breaking the data flow pipeline.
                 async def stream_wrapper(async_gen):
                     async for chunk in async_gen:
                         try:
-                            # Ollama optimizes payloads by only appending generation stats on the final streamed token chunk.
-                            # We check every chunk, but this block only triggers once the evaluation key shows up.
                             p_tokens = chunk.get("prompt_eval_count") if isinstance(chunk, dict) else getattr(chunk, "prompt_eval_count", None)
                             if p_tokens: 
+                                p_time = (chunk.get("prompt_eval_duration", 0) if isinstance(chunk, dict) else getattr(chunk, "prompt_eval_duration", 0)) / 1e9
                                 gen_tokens = chunk.get("eval_count", 0) if isinstance(chunk, dict) else getattr(chunk, "eval_count", 0)
                                 total_time = (chunk.get("total_duration", 0) if isinstance(chunk, dict) else getattr(chunk, "total_duration", 0)) / 1e9
-                                speed = f"{(gen_tokens / total_time):.2f} t/s" if total_time > 0 else "N/A"
                                 
-                                _LOGGER.info(f"🤖 OLLAMA VERBOSE: Prompt: {p_tokens} tokens | Generated: {gen_tokens} tokens | Time: {total_time:.2f}s | Speed: {speed}")
+                                cache_status = f"✅ CACHED ({p_time:.2f}s)" if p_time < 0.15 else f"❌ MISSED ({p_time:.2f}s)"
+                                speed = f"{(gen_tokens / (total_time - p_time)):.2f} t/s" if (total_time - p_time) > 0 else "N/A"
+                                
+                                # === UPDATED: ADDED TOTAL TIME BACK ===
+                                _LOGGER.info(f"🤖 OLLAMA VERBOSE: Prompt: {p_tokens}t {cache_status} | Generated: {gen_tokens}t | Speed: {speed} | Total: {total_time:.2f}s")
                         except Exception:
                             pass
-                        yield chunk # Pass the original token forward to Home Assistant's engine immediately
+                        yield chunk 
                 return stream_wrapper(response)
-
-        # Monkey-patch the dynamic wrapper over the class instance definition
         ollama.AsyncClient.chat = patched_chat
-        _LOGGER.info("Successfully patched Ollama client for Streaming Token Scrubbing and Verbose Logging!")
+        _LOGGER.info("Successfully patched Ollama client for Token Scrubbing, Redundancy Erasure, and Volatile Clocks!")
         
     except Exception as e:
         _LOGGER.error(f"Failed to patch Ollama client: {e}")
@@ -169,6 +164,8 @@ def apply_prompt_text_filter_patch():
             base_prompt = original_get_api_prompt(self, llm_context, exposed_entities)
             if not base_prompt or not isinstance(base_prompt, str):
                 return base_prompt
+            
+            base_prompt = re.sub(r"Current time is \d{2}:\d{2}:\d{2}\. Today's date is \d{4}-\d{2}-\d{2}\.", "", base_prompt)
 
             # 2. Only proceed with stripping if we have a valid microphone context
             if llm_context and llm_context.device_id:
@@ -359,13 +356,7 @@ class AiToolsAPI(llm.API):
             )
 
 async def async_setup(hass: HomeAssistant, config: dict):
-    # Register custom AI tools
+    # Register custom AI tools and intents
     llm.async_register_api(hass, AiToolsAPI(hass))
-    # Register custom local intent handlers
-    _LOGGER.info("Registering custom local media intent handlers...")
-    intent.async_register(hass, HassMediaNextOverride(hass))
-    intent.async_register(hass, HassMediaPreviousOverride(hass))
-    intent.async_register(hass, HassMediaSearchAndPlayOverride(hass))
-    intent.async_register(hass, HassMediaPauseOverride(hass))
-
+    register_media_service(hass)
     return True
