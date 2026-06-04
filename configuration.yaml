@@ -1,0 +1,26 @@
+default_config:
+wake_on_lan:
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+homeassistant:
+  packages: !include_dir_named packages
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+intent_script: !include intent_script.yaml
+
+ai_tools:
+
+logger:
+  default: info
+  logs:
+    homeassistant.components.conversation: debug
+    homeassistant.components.intent: debug
+    homeassistant.components.assist_pipeline: debug
+    homeassistant.helpers.intent: debug
+  filters:
+    homeassistant.components.conversation.chat_log:
+      - "Received delta:"
