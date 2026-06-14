@@ -44,18 +44,20 @@ class CustomAIAgent(conversation.ConversationEntity):
         
         # Tell the UI what to call this agent in the dropdown menu
         self._attr_name = "Custom AI Agent"
+
         # Unique ID is required for the gear icon link to work
         self._attr_unique_id = entry.entry_id
         self._attr_supports_streaming = True
 
-        # Models and Connection Settings
-        self.qdrant_client = None
+        # LLM Models and Connection Settings
         self.ollama_client = None
-        self.ollama_url = entry.options.get("url", "http://192.168.4.23:11434")
+        self.ollama_url = self.entry.options.get("ollama_url", "http://192.168.4.23:11434")
+        self.ollama_model = self.entry.options.get("ollama_model", "qwen2.5:latest")
         self.api_key = entry.options.get("api_key", "")
         self.ollama_url_embeddings = f"{self.ollama_url.rstrip('/')}/api/embeddings"
 
-        # Models
+        # Embedding Models and Connection Settings
+        self.qdrant_client = None
         self.embedding_model = entry.options.get("embedding_model", "qwen-embed-2k:latest")
         self.qdrant_url = entry.options.get("qdrant_url", "http://192.168.4.23:6333")
         
@@ -217,17 +219,18 @@ class CustomAIAgent(conversation.ConversationEntity):
         max_iterations = 5
         ollama_client = await self._get_ollama_client()
         
+        # Set Ollama options
         ollama_options = {
             "num_ctx": self.entry.options.get("num_ctx", 32768), 
             "temperature": self.entry.options.get("temperature", 0.5),
             "top_k": self.entry.options.get("top_k", 40)
-        }
-        
-        selected_model = self.entry.options.get("model", "qwen2.5:latest")
-        use_thinking = self.entry.options.get("thinking", False)
-        
+        }     
+        selected_model = self.ollama_model
+        use_thinking = self.entry.options.get("thinking", False)    
         raw_keep_alive = self.entry.options.get("keep_alive", -1)
         keep_alive_val = -1 if raw_keep_alive == -1 else f"{raw_keep_alive}m"
+
+        _LOGGER.info(f"🚀 Attempting Ollama Chat with model: {selected_model}")
 
         for iteration in range(max_iterations):
             _LOGGER.info(
@@ -392,14 +395,14 @@ class CustomAIAgent(conversation.ConversationEntity):
             return unlocked_tools, "" # Return default tools so the AI can still attempt an answer
 
         _LOGGER.info("--- QDRANT TOOL SEARCH SCORES ---")
-
+        
+        # Add the number of highest embed ranked tools based on tool limit set. 
         for hit in tool_results.points:
             tool_name = hit.payload.get("tool_id") or hit.payload.get("tool_name")
-            passes_threshold = hit.score > 0.50
+            passes_threshold = hit.score > 0.50 # Check tool ranking score for debugging tool unlocks
             _LOGGER.info(f"🛠️ Tool: {tool_name:<25} | Cosine Score: {hit.score:.4f} | Pass: {passes_threshold}")
             
-            if passes_threshold and tool_name and tool_name not in unlocked_tools:
-                unlocked_tools.append(tool_name)
+            unlocked_tools.append(tool_name)
 
         _LOGGER.info("--- QDRANT MEMORY SEARCH SCORES ---")
         found_facts = []
@@ -447,8 +450,8 @@ class CustomAIAgent(conversation.ConversationEntity):
             _LOGGER.debug(f"✂️ Applied Regex Room Filter for area: {active_area_name}")
 
         static_prefix = self.entry.options.get(
-            "system_prompt", 
-            "You are the conversational brain of a smart home..." # Fallback just in case
+            "Instructions", 
+            "You are the conversational brain of a smart home in Pacific Palisades..."
         )
         
         ha_context = f"\n### HOME ASSISTANT ENTITIES\n{ha_base_prompt}\n"

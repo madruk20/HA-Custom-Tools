@@ -43,36 +43,69 @@ class AIToolsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
         options = self.config_entry.options
+        errors = {}
         
-        # Read URL and API Key from options (with fallbacks)
-        ollama_url = options.get("url", "http://192.168.4.23:11434")
-        api_key = options.get("api_key", "")
-        
-        available_models = []
+        # Pull current values from user_input (re-rendering) or saved options
+        ollama_url = user_input.get("ollama_url") if user_input else options.get("ollama_url", "http://192.168.4.23:11434")
+        api_key = user_input.get("api_key") if user_input else options.get("api_key", "")
+
+        # 1. Handle user submission
+        if user_input is not None:
+            try:
+                session = async_get_clientsession(self.hass)
+                # Ensure the API key is passed here for the validation call
+                headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+                ssl_context = get_default_context() if ollama_url.startswith("https") else False
+                
+                # Verify model against server
+                async with session.get(f"{ollama_url.rstrip('/')}/api/tags", headers=headers, ssl=ssl_context, timeout=5) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        available_models = [m["name"] for m in data.get("models", [])]
+                        
+                        if user_input.get("ollama_model") not in available_models:
+                            errors["ollama_model"] = "model_not_found"
+                    else:
+                        errors["base"] = "cannot_connect"
+            except Exception as e:
+                _LOGGER.error(f"Validation failed: {e}")
+                errors["base"] = "cannot_connect"
+
+            if not errors:
+                return self.async_create_entry(title="", data=user_input)
+
+        # 2. Fetch available models for the dropdown
+        llm_models = []
+        embed_models = []
         try:
             session = async_get_clientsession(self.hass)
-            
-            # Setup Authentication Headers and SSL Context
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-            ssl_context = get_default_context() if ollama_url.startswith("https") else False
-            
-            # Query the dynamic URL securely
-            async with session.get(f"{ollama_url.rstrip('/')}/api/tags", headers=headers, ssl=ssl_context, timeout=5) as response:
+            async with session.get(f"{ollama_url.rstrip('/')}/api/tags", headers=headers, timeout=5) as response:
                 if response.status == 200:
                     data = await response.json()
-                    available_models = [m["name"] for m in data.get("models", [])]
-                else:
-                    _LOGGER.warning(f"Ollama API returned status: {response.status}")
-        except Exception as e:
-            _LOGGER.error(f"Failed to fetch Ollama models for dropdown: {str(e)}")
+                    embedding_model_families = {"bert", "roberta", "distilbert", "embedding"}
 
-        # Fallback if the server is offline or empty
-        if not available_models:
-            available_models = ["offline_fallback:latest"]
+                    for m in data.get("models", []):
+                        families = [f.lower() for f in m.get("details", {}).get("families", [])]
+                        name = m["name"].lower()
+                        
+                        # Logic for Embedding models
+                        is_embed = any(fam in embedding_model_families for fam in families) or "embed" in name
+              
+                        # If it's ambiguous (e.g. custom model with no families), show in both
+                        if not families and "embed" in name:
+                            llm_models.append(m["name"])
+                            embed_models.append(m["name"])
+                        elif is_embed:
+                            embed_models.append(m["name"])
+                        else:
+                            llm_models.append(m["name"])
+        except Exception as e:
+            _LOGGER.error(f"Could not refresh model lists: {e}")
+
+        if not llm_models:
+            llm_models = ["offline_fallback:latest"]
 
         return self.async_show_form(
             step_id="init",
@@ -94,15 +127,25 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
 
                 vol.Required(
                     "ollama_model", 
-                    default=options.get("model", available_models[0])
+                    default=user_input.get("ollama_model") if user_input else options.get("ollama_model", llm_models[0])
                 ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=available_models, mode=selector.SelectSelectorMode.DROPDOWN)
+                    selector.SelectSelectorConfig(
+                        options=llm_models, 
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        custom_value=True
+                    )
                 ),
 
-                vol.Optional(
+                vol.Required(
                     "embedding_model", 
-                    default=options.get("embedding_model", "qwen-embed-2k:latest")
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)),
+                    default=user_input.get("embedding_model") if user_input else options.get("embedding_model", embed_models[0] if embed_models else "qwen-embed-2k:latest")
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=embed_models, 
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        custom_value=True
+                    )
+                ),
 
                 vol.Optional(
                     "Instructions", 
