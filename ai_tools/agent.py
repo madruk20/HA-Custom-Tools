@@ -9,7 +9,7 @@ from voluptuous_openapi import convert
 import homeassistant.util.dt as dt_util
 from homeassistant.core import HomeAssistant
 from homeassistant.components import conversation
-from homeassistant.helpers import intent, llm
+from homeassistant.helpers import llm
 from homeassistant.util.ssl import get_default_context
 from homeassistant.config_entries import ConfigEntry
 import homeassistant.helpers.device_registry as dr
@@ -255,10 +255,17 @@ class CustomAIAgent(conversation.ConversationEntity):
 
             full_content_out = []
             tool_calls_buffer = []
+            
+            # Placeholder dictionary to capture final metadata from the stream
+            final_metadata = {}
 
             async def _transform_stream():
                 new_msg = True
                 async for chunk in response_generator:
+                    # Capture token statistics if they exist in the chunk (usually the final chunk)
+                    if "eval_count" in chunk or "prompt_eval_count" in chunk:
+                        final_metadata.update(chunk)
+
                     msg = chunk.get("message", {})
                     delta = {}
                     
@@ -280,6 +287,15 @@ class CustomAIAgent(conversation.ConversationEntity):
             # Stream text to the UI
             async for _ in chat_log.async_add_delta_content_stream(self.entity_id, _transform_stream()):
                 pass
+
+            # --- LOG TOKEN METRICS HERE ---
+            p_tokens = final_metadata.get("prompt_eval_count", 0)
+            p_time = final_metadata.get("prompt_eval_duration", 0) / 1e9
+            gen_tokens = final_metadata.get("eval_count", 0)
+            total_time = final_metadata.get("total_duration", 0) / 1e9
+            speed = f"{(gen_tokens / (total_time - p_time)):.2f} t/s" if (total_time - p_time) > 0 else "N/A"
+            _LOGGER.info(f"🤖 OLLAMA VERBOSE: Prompt: {p_tokens}t | Generated: {gen_tokens}t | Speed: {speed} | Total: {total_time:.2f}s")
+            # ------------------------------
 
             full_content = "".join(full_content_out)
             
@@ -335,12 +351,7 @@ class CustomAIAgent(conversation.ConversationEntity):
 
 
     async def _fetch_context(self, query: str) -> tuple[list, str]:
-        """Fetch embeddings and query Qdrant with full cosine score logging."""
-        cache_key = query.strip().lower()
-        if cache_key in self._query_cache:
-            _LOGGER.info(f"⚡ [CACHE HIT] Instantly loading tools for: '{cache_key}'")
-            return self._query_cache[cache_key], ""
-
+        """Fetch embeddings and query Qdrant dynamically on every request."""
         _LOGGER.info(f"🔍 [VECTOR SEARCH] Requesting embedding for: '{query}'")
         try:
             timeout = aiohttp.ClientTimeout(total=5.0)
@@ -365,9 +376,12 @@ class CustomAIAgent(conversation.ConversationEntity):
 
         client = await self._get_qdrant_client()
 
+        # Always inject these fallback tools regardless of the search
+        always_allow = ["smart_web_search", "GetLiveContext"]
+        unlocked_tools = list(always_allow)
+
         _LOGGER.info("🔍 [VECTOR SEARCH] Querying Qdrant Database...")
         try:
-            # Wrap the gather task in a 5-second timeout
             async with asyncio.timeout(5.0):
                 tool_results, fact_results = await asyncio.gather(
                     client.query_points(collection_name="tools_collection", query=query_vector, limit=self.TOOL_LIMIT, with_payload=True),
@@ -375,15 +389,16 @@ class CustomAIAgent(conversation.ConversationEntity):
                 )
         except TimeoutError:
             _LOGGER.error("❌ Qdrant vector search timed out after 5 seconds.")
-            return unlocked_tools, memories # Return empty/defaults so the AI can still try to answer
+            return unlocked_tools, "" # Return default tools so the AI can still attempt an answer
 
         _LOGGER.info("--- QDRANT TOOL SEARCH SCORES ---")
-        unlocked_tools = []
+
         for hit in tool_results.points:
             tool_name = hit.payload.get("tool_id") or hit.payload.get("tool_name")
-            _LOGGER.info(f"🛠️ Tool: {tool_name:<25} | Cosine Score: {hit.score:.4f} | Pass: True (Top 3)")
-            # Removed the hit.score threshold so it always unlocks the top results
-            if tool_name and tool_name not in unlocked_tools:
+            passes_threshold = hit.score > 0.50
+            _LOGGER.info(f"🛠️ Tool: {tool_name:<25} | Cosine Score: {hit.score:.4f} | Pass: {passes_threshold}")
+            
+            if passes_threshold and tool_name and tool_name not in unlocked_tools:
                 unlocked_tools.append(tool_name)
 
         _LOGGER.info("--- QDRANT MEMORY SEARCH SCORES ---")
@@ -391,23 +406,17 @@ class CustomAIAgent(conversation.ConversationEntity):
         for hit in fact_results.points:
             content = hit.payload.get('content', '')
             short_content = (content[:60] + '...') if len(content) > 60 else content
-            _LOGGER.info(f"🧠 Memory: {short_content:<25} | Cosine Score: {hit.score:.4f} | Pass: {hit.score > 0.50}")
-            if hit.score > 0.50:
+            passes_threshold = hit.score > 0.50
+            _LOGGER.info(f"🧠 Memory: {short_content:<25} | Cosine Score: {hit.score:.4f} | Pass: {passes_threshold}")
+            
+            if passes_threshold:
                 found_facts.append(f"- {content}")
 
         memories = "\n".join(found_facts) if found_facts else ""
 
-        # --- NEW CODE: Inject permanent tools before logging ---
-        always_allow = ["smart_web_search", "GetLiveContext"]
-        for tool in always_allow:
-            if tool not in unlocked_tools:
-                unlocked_tools.append(tool)
-        # -------------------------------------------------------
-
         _LOGGER.info(f"🔓 [FINAL UNLOCKED TOOLS]: {unlocked_tools}")
         _LOGGER.info(f"🧠 [FINAL RETRIEVED MEMORIES]: {len(found_facts)} facts injection ready.")
 
-        self._query_cache[cache_key] = unlocked_tools
         return unlocked_tools, memories
 
     def _build_system_prompt(self, device_id: str, personal_memories: str, ha_base_prompt: str) -> str:
