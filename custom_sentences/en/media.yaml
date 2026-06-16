@@ -1,0 +1,49 @@
+language: "en"
+lists:
+  query:
+    wildcard: true
+  game:
+    wildcard: true
+intents:
+  LoadGame:
+    data:
+      - sentences:
+          - "load game {game}"
+          - "start game {game}"
+          - "play game {game}"
+
+  MusicNext:
+    data:
+      - sentences:
+          - "[play] [(the|my)] next (song|track) on [(the|my)] {name}"
+          - "[play] [(the|my)] next (song|track) in [(the|my)] {area}"
+          - "[play] [(the|my)] next (song|track)"
+          - "skip [this] (song|track|music) on [(the|my)] {name}"
+          - "skip [this] (song|track|music) in [(the|my)] {area}"
+          - "skip [this] (song|track|music)"
+          - "next track on [(the|my)] {name}"
+          - "next track in [(the|my)] {area}"
+          - "next track"
+
+  MusicPrevious:
+    data:
+      - sentences:
+          - "[play] [(the|my)] previous (song|track) on [(the|my)] {name}"
+          - "[play] [(the|my)] previous (song|track) in [(the|my)] {area}"
+          - "[play] [(the|my)] previous (song|track)"
+          - "go back on [(the|my)] {name}"
+          - "go back in [(the|my)] {area}"
+          - "go back"
+          - "previous track on [(the|my)] {name}"
+          - "previous track in [(the|my)] {area}"
+          - "previous track"
+
+  MusicPause:
+    data:
+      - sentences:
+          - "pause [(the|my)] (music|song|track|audio) on [(the|my)] {name}"
+          - "pause [(the|my)] (music|song|track|audio) in [(the|my)] {area}"
+          - "pause [(the|my)] (music|song|track|audio)"
+          - "stop [(the|my)] (music|song|track|audio) on [(the|my)] {name}"
+          - "stop [(the|my)] (music|song|track|audio) in [(the|my)] {area}"
+          - "stop [(the|my)] (music|song|track|audio)"
