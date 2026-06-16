@@ -1,0 +1,40 @@
+LoadGame:
+  speech:
+    text: "Loading game {{ game }}"
+  action:
+    - service: button.press
+      target:
+        entity_id: button.arcade_loadgame
+      data:
+        parameters:
+          game: "{{ game }}"
+
+MusicPause:
+  action:
+    - service: ai_tools.execute_media
+      data:
+        action: "pause"
+        room: "{{ area if area is defined else '' }}"
+        device_name: "{{ name if name is defined else '' }}"
+  speech:
+    text: "Paused."
+
+MusicNext:
+  action:
+    - service: ai_tools.execute_media
+      data:
+        action: "next"
+        room: "{{ area if area is defined else '' }}"
+        device_name: "{{ name if name is defined else '' }}"
+  speech:
+    text: "Playing next track."
+
+MusicPrevious:
+  action:
+    - service: ai_tools.execute_media
+      data:
+        action: "previous"
+        room: "{{ area if area is defined else '' }}"
+        device_name: "{{ name if name is defined else '' }}"
+  speech:
+    text: "Playing previous track."
