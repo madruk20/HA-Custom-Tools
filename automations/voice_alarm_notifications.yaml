@@ -1,0 +1,113 @@
+alias: Voice Alarm Notifications
+description: >-
+  Routes alarm announcements, sets dynamic helpers, and includes the Android
+  Voice_Alarm failsafe using a dedicated health sensor.
+mode: parallel
+triggers:
+  - trigger: time
+    at: input_datetime.voice_alarm_bedroom
+    id: bedroom_alarm
+  - trigger: time
+    at: input_datetime.voice_alarm_playroom
+    id: playroom_alarm
+conditions: []
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: bedroom_alarm
+          - condition: state
+            entity_id: input_boolean.voice_alarm_enabled_bedroom
+            state: "on"
+        sequence:
+          - if:
+              - condition: state
+                entity_id: binary_sensor.bedroom_speaker_available
+                state: "off"
+            then:
+              - action: notify.mobile_app_samsung_23
+                data:
+                  title: 🚨 WAKE UP ALARM
+                  message: Wake up! The bedroom speaker failed or is unavailable.
+                  data:
+                    channel: Voice_Alarm
+                    ttl: 0
+                    priority: high
+              - delay: "00:03:00"
+            else:
+              - action: media_player.volume_set
+                target:
+                  entity_id: media_player.home_assistant_voice_bedroom
+                data:
+                  volume_level: 0.7
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.active_alarm_media_bedroom
+                data:
+                  value: media_player.home_assistant_voice_bedroom
+              - action: music_assistant.play_media
+                target:
+                  entity_id: media_player.home_assistant_voice_bedroom
+                data:
+                  enqueue: replace
+                  media_id: >-
+                    {% set playlist = [
+                      'Yasunori Mitsuda - Peaceful Days',
+                      'Bone Thugs-N-Harmony - First Of The Month',
+                      'Enya - Caribbean Blue'
+                    ] %}
+                    {% set selected = playlist | random %}
+                    {{ selected if selected is not none else 'http://192.168.4.138:8123/local/sounds/peaceful_days.mp3' }}
+              - delay: "00:00:02"
+              - action: tts.speak
+                target:
+                  entity_id: tts.openai
+                data:
+                  media_player_entity_id: media_player.home_assistant_voice_bedroom
+                  message: >-
+                    Good Morning! Your alarm is going off. It is {{
+                    now().strftime('%A, %B %-d %-I:%M %p') }}.
+              - delay: "00:03:00"
+              - action: media_player.media_stop
+                target:
+                  entity_id: media_player.home_assistant_voice_bedroom
+                continue_on_error: true
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.active_alarm_media_bedroom
+                data:
+                  value: none
+      - conditions:
+          - condition: trigger
+            id: playroom_alarm
+          - condition: state
+            entity_id: input_boolean.voice_alarm_enabled_playroom
+            state: "on"
+        sequence:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.active_alarm_media_playroom
+            data:
+              value: media_player.arcade_soundbar
+          - action: music_assistant.play_media
+            data:
+              enqueue: replace
+              media_id: |-
+                {{ [
+                  'Yasunori Mitsuda - Peaceful Days',
+                  'Bone Thugs-N-Harmony - First Of The Month',
+                  'Enya - Caribbean Blue'
+                ] | random }}
+            target:
+              entity_id: media_player.arcade_soundbar
+          - delay: "00:03:00"
+          - action: media_player.media_stop
+            continue_on_error: true
+            data: {}
+            target:
+              entity_id: media_player.arcade_soundbar
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.active_alarm_media_playroom
+            data:
+              value: none

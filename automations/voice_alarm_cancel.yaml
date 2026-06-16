@@ -1,0 +1,53 @@
+alias: "Voice Command: Cancel Alarm"
+description: >-
+  Intercepts exact phrases locally, determines the room context, sets the
+  response, and fires the master cancel script.
+mode: single
+triggers:
+  - trigger: conversation
+    command:
+      - cancel alarm
+      - stop alarm
+      - stop the alarm
+      - cancel the alarm
+      - turn off alarm
+      - cancel my alarm
+      - stop my alarm
+      - turn off my alarm
+      - turn off the alarm
+conditions: []
+actions:
+  - variables:
+      detected_area: "{{ area_id(trigger.device_id) if trigger.device_id else 'any' }}"
+      target_room: >-
+        {% if detected_area == 'bedroom' %}bedroom{% elif detected_area == 'playroom' %}playroom{% else %}any{% endif %}
+      response_text: >-
+        {% if target_room == 'bedroom' %}
+          {% if states('input_text.active_alarm_media_bedroom') not in ['none', 'unknown', ''] %}
+            Done. Silencing bedroom speaker.
+          {% elif is_state('input_boolean.voice_alarm_enabled_bedroom', 'on') %}
+            Your alarm for {{ as_timestamp(today_at(states('input_datetime.voice_alarm_bedroom'))) | timestamp_custom('%-I:%M %p') }} in the bedroom is cancelled.
+          {% else %}
+            There are no active or scheduled alarms in the bedroom.
+          {% endif %}
+        {% elif target_room == 'playroom' %}
+          {% if states('input_text.active_alarm_media_playroom') not in ['none', 'unknown', ''] %}
+            Done. Silencing playroom speaker.
+          {% elif is_state('input_boolean.voice_alarm_enabled_playroom', 'on') %}
+            Your alarm for {{ as_timestamp(today_at(states('input_datetime.voice_alarm_playroom'))) | timestamp_custom('%-I:%M %p') }} in the playroom is cancelled.
+          {% else %}
+            There are no active or scheduled alarms in the playroom.
+          {% endif %}
+        {% else %}
+          {% if states('input_text.active_alarm_media_bedroom') not in ['none', 'unknown', ''] or states('input_text.active_alarm_media_playroom') not in ['none', 'unknown', ''] %}
+            Done. Stopping all running alarms.
+          {% elif is_state('input_boolean.voice_alarm_enabled_bedroom', 'on') or is_state('input_boolean.voice_alarm_enabled_playroom', 'on') %}
+            Stopping active alarm schedules.
+          {% else %}
+            There are no scheduled alarms to cancel right now.
+          {% endif %}
+        {% endif %}
+  - set_conversation_response: "{{ response_text }}"
+  - action: script.cancel_active_alarms
+    data:
+      room: "{{ target_room }}"
