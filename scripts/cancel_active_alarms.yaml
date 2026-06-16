@@ -1,0 +1,131 @@
+cancel_active_alarms:
+  alias: Cancel Active Alarms
+  description: >-
+    Safely stops ringing alarms or disables schedules and returns the action
+    taken.
+  mode: parallel
+  fields:
+    room:
+      description: The target room (bedroom or playroom)
+      example: bedroom
+      default: any
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ room == 'bedroom' }}"
+          sequence:
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ states('input_text.active_alarm_media_bedroom') not in
+                    ['none', 'unknown', ''] }}
+              then:
+                - action: automation.turn_off
+                  target:
+                    entity_id: automation.voice_alarm_notifications
+                  data:
+                    stop_actions: true
+                - action: automation.turn_on
+                  target:
+                    entity_id: automation.voice_alarm_notifications
+                - action: media_player.media_stop
+                  target:
+                    entity_id: "{{ states('input_text.active_alarm_media_bedroom') }}"
+                  continue_on_error: true
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.active_alarm_media_bedroom
+                  data:
+                    value: none
+                - variables:
+                    action_result:
+                      message: I silenced the bedroom speaker.
+                - stop: "Halt and return"
+                  response_variable: action_result
+              else:
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.voice_alarm_enabled_bedroom
+                - variables:
+                    action_result:
+                      message: I disabled the scheduled bedroom alarm.
+                - stop: "Halt and return"
+                  response_variable: action_result
+        - conditions:
+            - condition: template
+              value_template: "{{ room == 'playroom' }}"
+          sequence:
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ states('input_text.active_alarm_media_playroom') not in
+                    ['none', 'unknown', ''] }}
+              then:
+                - action: automation.turn_off
+                  target:
+                    entity_id: automation.voice_alarm_notifications
+                  data:
+                    stop_actions: true
+                - action: automation.turn_on
+                  target:
+                    entity_id: automation.voice_alarm_notifications
+                - action: media_player.media_stop
+                  target:
+                    entity_id: "{{ states('input_text.active_alarm_media_playroom') }}"
+                  continue_on_error: true
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.active_alarm_media_playroom
+                  data:
+                    value: none
+                - variables:
+                    action_result:
+                      message: I silenced the playroom speaker.
+                - stop: "Halt and return"
+                  response_variable: action_result
+              else:
+                - action: input_boolean.turn_off
+                  target:
+                    entity_id: input_boolean.voice_alarm_enabled_playroom
+                - variables:
+                    action_result:
+                      message: I disabled the scheduled playroom alarm.
+                - stop: "Halt and return"
+                  response_variable: action_result
+        - conditions:
+            - condition: template
+              value_template: "{{ room == 'any' }}"
+          sequence:
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ states('input_text.active_alarm_media_bedroom') not in
+                    ['none', 'unknown', ''] }}
+              then:
+                - action: media_player.media_stop
+                  target:
+                    entity_id: "{{ states('input_text.active_alarm_media_bedroom') }}"
+                  continue_on_error: true
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ states('input_text.active_alarm_media_playroom') not in
+                    ['none', 'unknown', ''] }}
+              then:
+                - action: media_player.media_stop
+                  target:
+                    entity_id: "{{ states('input_text.active_alarm_media_playroom') }}"
+                  continue_on_error: true
+            - action: input_text.set_value
+              target:
+                entity_id:
+                  - input_text.active_alarm_media_bedroom
+                  - input_text.active_alarm_media_playroom
+              data:
+                value: none
+            - variables:
+                action_result:
+                  message: I swept the house and stopped any ringing alarms.
+            - stop: "Halt and return"
+              response_variable: action_result
