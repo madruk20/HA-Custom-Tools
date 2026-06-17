@@ -1,0 +1,78 @@
+{
+  "options": {
+    "step": {
+      "init": {
+        "title": "AI Agent Configuration",
+        "description": "Configure the core settings for your AI, embeddings, and vector database.",
+        "data": {
+          "llm_backend_type": "LLM Backend Provider",
+          "llm_url": "LLM Server URL",
+          "llm_api_key": "LLM API Key (Optional)",
+          "llm_model": "Chat Model",
+          "embed_backend_type": "Embedding Backend Provider",
+          "embed_url": "Embedding Server URL",
+          "embed_api_key": "Embedding API Key (Optional)",
+          "embedding_model": "Embedding Model",
+          "vector_db_backend": "Vector Database Provider",
+          "vector_db_url": "Vector Database URL",
+          "vector_db_api_key": "Vector Database API Key (Optional)",
+          "Instructions": "System Instructions",
+          "thinking": "Enable Reasoning / Thinking Trace",
+          "temperature": "Temperature",
+          "repeat_penalty": "Repeat Penalty",
+          "top_p": "Top-P (Nucleus Sampling)",
+          "top_k": "Top-K",
+          "max_history": "Maximum Chat History",
+          "num_ctx": "Context Window (Tokens)",
+          "num_predict": "Max Response Length (Tokens)",
+          "mirostat": "Mirostat Smoothing",
+          "keep_alive": "Keep Alive in VRAM (Minutes)",
+          "configure_tools": "Configure Tool Filtering & Limits"
+        },
+        "data_description": {
+          "llm_backend_type": "Select the platform powering your primary chat model.",
+          "llm_url": "The full network address to your LLM API (e.g., http://localhost:11434).",
+          "llm_api_key": "Leave blank for local Ollama. Required for OpenAI or cloud proxies.",
+          "llm_model": "The specific model to use for conversation and tool-calling.",
+          "embed_backend_type": "Select 'None' to disable the vector database/RAG entirely and unlock all tools simultaneously.",
+          "embed_url": "The full address to your embedding API (often identical to your LLM URL).",
+          "embed_api_key": "Required if using a protected cloud endpoint for embeddings.",
+          "embedding_model": "The model used to convert text into vector embeddings (e.g., nomic-embed-text).",
+          "vector_db_backend": "The software managing your semantic tool search.",
+          "vector_db_url": "The network address for your vector database (e.g., http://localhost:6333).",
+          "vector_db_api_key": "Authentication key for your vector database, if configured.",
+          "Instructions": "The core personality and strict operational rules for the AI. This overrides standard Home Assistant prompts.",
+          "thinking": "Allows reasoning models to output hidden thinking tokens (like [think] blocks) before answering. Disable for standard models.",
+          "temperature": "Higher values make output more creative, lower values make it more focused and deterministic.",
+          "repeat_penalty": "Strictness against the AI repeating the same phrases. 1.0 = disabled.",
+          "top_p": "Limits word choice to a percentage of the most probable options. Lower values increase focus.",
+          "top_k": "Limits the AI to choosing from only the top K most likely next words.",
+          "max_history": "The maximum number of previous messages to remember in a single conversation thread.",
+          "num_ctx": "The total token memory the AI can use per request. Higher numbers require more VRAM.",
+          "num_predict": "The maximum number of tokens the AI is allowed to generate in a single response.",
+          "mirostat": "An algorithm that actively maintains the quality and perplexity of generated text during long outputs.",
+          "keep_alive": "How long Ollama should keep the models loaded in VRAM after a request (-1 for indefinite, 0 to unload immediately).",
+          "configure_tools": "Check this box and click Submit to open the advanced Tool Filter menu."
+        }
+      },
+      "tools": {
+        "title": "Tool Filtering & Memory Limits",
+        "description": "Configure how the vector database retrieves and filters available tools and memories for the AI.",
+        "data": {
+          "blacklisted_tools": "Disabled Tools",
+          "llm_tool_limit": "Maximum Tool Quota",
+          "llm_cosine_threshold": "Cosine Similarity Threshold"
+        },
+        "data_description": {
+          "blacklisted_tools": "Select any tools from this list that you want to permanently hide from the AI. Blacklisted tools will never be injected into the prompt.",
+          "tool_injection_limit": "The maximum number of relevant tools the vector database is allowed to inject into a single prompt. (Default: 3)",
+          "tool_cosine_threshold": "The minimum mathematical confidence score required for a tool to be considered relevant to the user's prompt. Lower values allow more tools; higher values require a stricter match. (Default: 0.50)",
+          "enable_memory_injection": "Turn off to disable RAG memory retrieval entirely and only use the vector database for tool selection.",
+          "memory_collections": "Type a Qdrant collection name and press Enter to add it. You can query multiple collections (e.g., schedules, facts, preferences).",
+          "memory_injection_limit": "Maximum number of total facts/memories per collection injected into a single prompt. (Default: 3)",
+          "memory_cosine_threshold": "Minimum confidence score for a memory/fact to be considered relevant. (Default: 0.50)"
+        }
+      }
+    }
+  }
+}
