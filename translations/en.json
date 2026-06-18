@@ -52,7 +52,7 @@
           "num_predict": "The maximum number of tokens the AI is allowed to generate in a single response.",
           "mirostat": "An algorithm that actively maintains the quality and perplexity of generated text during long outputs.",
           "keep_alive": "How long Ollama should keep the models loaded in VRAM after a request (-1 for indefinite, 0 to unload immediately).",
-          "configure_tools": "Check this box and click Submit to open the advanced Tool Filter menu."
+          "configure_tools": "Toggle on and click Submit to open the advanced Tool Filter menu."
         }
       },
       "tools": {
@@ -66,11 +66,12 @@
         "data_description": {
           "blacklisted_tools": "Select any tools from this list that you want to permanently hide from the AI. Blacklisted tools will never be injected into the prompt.",
           "tool_injection_limit": "The maximum number of relevant tools the vector database is allowed to inject into a single prompt. (Default: 3)",
-          "tool_cosine_threshold": "The minimum mathematical confidence score required for a tool to be considered relevant to the user's prompt. Lower values allow more tools; higher values require a stricter match. (Default: 0.50)",
+          "tool_cosine_threshold": "The minimum mathematical confidence score required for a tool to be considered relevant to the user's prompt. Lower values allow more tools; higher values require a stricter match. (Default: 0.30)",
           "enable_memory_injection": "Turn off to disable RAG memory retrieval entirely and only use the vector database for tool selection.",
           "memory_collections": "Type a Qdrant collection name and press Enter to add it. You can query multiple collections (e.g., schedules, facts, preferences).",
           "memory_injection_limit": "Maximum number of total facts/memories per collection injected into a single prompt. (Default: 3)",
-          "memory_cosine_threshold": "Minimum confidence score for a memory/fact to be considered relevant. (Default: 0.50)"
+          "memory_cosine_threshold": "Minimum confidence score for a memory/fact to be considered relevant. (Default: 0.50)",
+          "clear_cache_now": "Toggle on and submit to clear all currently cached tool requests and memories."
         }
       }
     }
