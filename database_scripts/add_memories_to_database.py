@@ -39,8 +39,8 @@ qdrant.create_collection(
 
 # --- Memories Data ---
 memories_to_add = [
-    {"content": "Chuck's birthday is January 15th 1978."},
-    {"content": "Rhonda Pardridge is a family member."},
+    {"content": "John Doe's birthday is January 9th 1996."},
+    {"content": "Jane Doe is a family member."},
     {"content": "Madruk prefers pepperoni pizza with extra sauce and extra cheese."},
     {"content": "The home theater system uses a 9.2-channel network AV receiver."}
 ]
