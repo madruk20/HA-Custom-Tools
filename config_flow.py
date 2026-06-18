@@ -324,6 +324,16 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_tools(self, user_input=None):
         """Second step to handle the tool blacklist."""
         if user_input is not None:
+            # --- CLEAR CACHE LOGIC ---
+            if user_input.get("clear_cache_now"):
+                cache_path = Path(__file__).parent / "semantic_cache.json"
+                if cache_path.exists():
+                    _LOGGER.info("🗑️ Clearing semantic cache via Config Flow...")
+                    await self.hass.async_add_executor_job(os.remove, cache_path)
+                
+                # Reset the checkbox to False so it doesn't try to delete it every time you save settings
+                user_input["clear_cache_now"] = False
+            
             self._options.update(user_input)
             return self.async_create_entry(title="", data=self._options)
         
@@ -357,7 +367,7 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
         options = self.config_entry.options
         current_blacklist = options.get("blacklisted_tools", [])
         current_limit = options.get("tool_injection_limit", 3)
-        current_threshold = options.get("tool_cosine_threshold", 0.50)
+        current_threshold = options.get("tool_cosine_threshold", 0.30)
 
         current_memory_enabled = options.get("enable_memory_injection", True)
         current_mem_limit = options.get("memory_injection_limit", 3)
@@ -417,5 +427,6 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional("memory_cosine_threshold", default=current_mem_threshold): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)
                 ),
+                vol.Optional("clear_cache_now", default=False): selector.BooleanSelector()
             })
         )
