@@ -2,7 +2,9 @@ import logging
 import aiohttp
 import asyncio
 from datetime import datetime
+import hashlib
 import json
+import os
 import re
 import ollama
 from voluptuous_openapi import convert
@@ -10,6 +12,7 @@ import importlib
 import pkgutil
 import inspect
 from pathlib import Path
+from qdrant_client import models
 
 import homeassistant.util.dt as dt_util
 from homeassistant.core import HomeAssistant
@@ -34,6 +37,10 @@ class CustomAIAgent(conversation.ConversationEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         self.hass = hass
         self.entry = entry
+
+        # Setup permanent semantic cache
+        self.cache_file = Path(__file__).parent / "semantic_cache.json"
+        self.semantic_cache = {}
         
         # Tell the UI what to call this agent in the dropdown menu
         self._attr_name = "Custom AI Agent"
@@ -41,6 +48,9 @@ class CustomAIAgent(conversation.ConversationEntity):
         # Unique ID is required for the gear icon link to work
         self._attr_unique_id = entry.entry_id
         self._attr_supports_streaming = True
+
+        # Sparse embed model
+        self.sparse_model = None
 
         # LLM Models and Connection Settings
         self.ollama_client = None
@@ -104,6 +114,25 @@ class CustomAIAgent(conversation.ConversationEntity):
     def name(self) -> str:
         return "Custom AI Agent"
     
+    def _sync_load_cache(self):
+        """Synchronously load the cache (called by executor job)."""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, "r") as f:
+                    self.semantic_cache = json.load(f)
+                _LOGGER.info(f"💾 Loaded {len(self.semantic_cache)} cached routines from disk.")
+            except Exception as e:
+                _LOGGER.warning(f"⚠️ Failed to load semantic cache: {e}")
+
+
+    def _save_cache(self):
+        """Saves the RAM cache to disk so it survives reboots."""
+        try:
+            with open(self.cache_file, "w") as f:
+                json.dump(self.semantic_cache, f)
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to save semantic cache to disk: {e}")
+
 
     def _sync_load_custom_tools(self):
         """Synchronously import tools (MUST be run in executor thread)."""
@@ -127,10 +156,21 @@ class CustomAIAgent(conversation.ConversationEntity):
             except Exception as e:
                 _LOGGER.error(f"❌ Failed to load custom tool module '{module_name}': {e}")
 
-    async def async_initialize_tools(self):
-        """Async wrapper to offload the disk I/O to a background thread."""
-        await self.hass.async_add_executor_job(self._sync_load_custom_tools)
 
+    async def async_initialize_tools(self):
+        """Async wrapper to offload initialization to background threads."""
+        
+        # 1. ALWAYS load custom tools (independent of cache state)
+        await self.hass.async_add_executor_job(self._sync_load_custom_tools)
+        
+        # 2. Safely attempt to load cache if it exists
+        if self.cache_file.exists():
+            await self.hass.async_add_executor_job(self._sync_load_cache)
+        else:
+            # Explicitly reset to empty if file is missing
+            self.semantic_cache = {}
+            _LOGGER.info("ℹ️ No cache file found. Starting with an empty RAM cache.")
+            
     
     def _trim_history_safely(self, history: list, max_messages: int = 40) -> list:
         """Trims history safely without breaking tool call/response chains."""
@@ -414,43 +454,37 @@ class CustomAIAgent(conversation.ConversationEntity):
         # =================================================================
         current_time = dt_util.utcnow().timestamp()
         
-        # 1. Scan ALL tracked sessions to find orphaned memory leaks
         expired_sessions = []
         for stored_session, last_active in self.session_timeouts.items():
             if (current_time - last_active) > 300: # 5 minutes (300 seconds)
                 expired_sessions.append(stored_session)
                 
-        # 2. Purge the expired sessions from RAM
         for exp_session in expired_sessions:
             _LOGGER.info(f"🧹 Sweeping orphaned memory for expired session: {exp_session}")
             self.history.pop(exp_session, None)
             self.session_tool_cache.pop(exp_session, None)
             self.session_timeouts.pop(exp_session, None)
             
-        # 3. Update the tracker to the current time for THIS active session
         self.session_timeouts[session_id] = current_time
         
-        # 1. Fetch API Instance and Tools
+        # 1. Fetch API Instance, Tools, and the unique Hash for this query
         ha_api_instance = await self._get_ha_api_instance(user_input)
-        unlocked_tool_names, personal_memories = await self._fetch_context(user_query)
+        
+        # Unpack values
+        unlocked_tool_names, personal_memories, query_hash = await self._fetch_context(user_query)
         
         # Ensure our session tool cache exists for this conversation
         if session_id not in self.session_tool_cache:
             self.session_tool_cache[session_id] = set()
 
-        # If we have tools stored from the last turn, inject them into our unlocked tool list
+        # If we have tools stored from the last turn, inject them
         if unlocked_tool_names is not None and self.session_tool_cache[session_id]:
             _LOGGER.info(f"🧠 [SESSION MEMORY] Injecting tools from previous turn: {list(self.session_tool_cache[session_id])}")
             for cached_tool in self.session_tool_cache[session_id]:
                 if cached_tool not in unlocked_tool_names:
                     unlocked_tool_names.append(cached_tool)
-                    
-        # CLEAR the tool cache now so it only accumulates tools used in THIS upcoming turn, this is by default disabled
-        # In order to keep all tools used cached for the current conversation, enable to only keep tools
-        # from the previous turn
-        # self.session_tool_cache[session_id].clear()
 
-        # Assemble active execution tools using the combined list
+        # Assemble active execution tools
         active_tools, active_tool_schemas = self._assemble_and_filter_tools(ha_api_instance, unlocked_tool_names)
 
         # 2. Build System Prompt
@@ -460,42 +494,61 @@ class CustomAIAgent(conversation.ConversationEntity):
             ha_api_instance.api_prompt
         )
 
-        # 3. Manage local history for the conversation thread
+        # 3. Manage local history
         if session_id not in self.history:
             self.history[session_id] = []
 
-        # Find any images attached to the current user input in the HA chat log
         images = []
         for content in reversed(chat_log.content):
             if isinstance(content, conversation.UserContent):
                 for attachment in content.attachments or ():
                     if attachment.mime_type.startswith("image/"):
                         images.append(attachment.path)
-                break  # Stop after the most recent user message
+                break 
 
         user_msg = {"role": "user", "content": user_query}
-
         if images:
             user_msg["images"] = images
 
         self.history[session_id].append(user_msg)
 
-        # Truncate history if it gets too long
         max_history = self.entry.options.get("max_history", 40)
         if len(self.history[session_id]) > max_history:
             self.history[session_id] = self.history[session_id][-max_history:]
 
         messages = [{"role": "system", "content": system_prompt}] + self.history[session_id]
 
-        # 4. Execute the Tool Loop with Streaming
-        await self._execute_tool_loop_streaming(messages, active_tools, active_tool_schemas, ha_api_instance, chat_log, session_id)
+        # 4. Execute the Tool Loop (Passing query_hash and memories for the new Outcome-Based Cache)
+        await self._execute_tool_loop_streaming(
+            messages, 
+            active_tools, 
+            active_tool_schemas, 
+            ha_api_instance, 
+            chat_log, 
+            session_id,
+            query_hash,
+            personal_memories
+        )
 
         return conversation.async_get_result_from_chat_log(user_input, chat_log)
     
 
-    async def _execute_tool_loop_streaming(self, messages, active_tools, tool_schemas, ha_api_instance, chat_log: conversation.ChatLog, session_id: str):
+    async def _execute_tool_loop_streaming(
+            self, 
+            messages, 
+            active_tools, 
+            tool_schemas, 
+            ha_api_instance, 
+            chat_log: conversation.ChatLog, 
+            session_id: str, 
+            query_hash: str, 
+            personal_memories: str
+    ):
         max_iterations = 5
         ollama_client = await self._get_ollama_client()
+        
+        # Track ONLY tools that execute successfully during this turn for caching
+        successful_tools = []
         
         # Set Ollama options
         ollama_options = {
@@ -581,20 +634,16 @@ class CustomAIAgent(conversation.ConversationEntity):
                                     delta = choices[0].get("delta", {})
                                     out_delta = {}
 
-                                    # Capture deep reasoning blocks (Supported by DeepSeek/Groq endpoints)
                                     if raw_reasoning := delta.get("reasoning_content"):
                                         out_delta["thinking_content"] = raw_reasoning
                                         full_thinking_out.append(raw_reasoning)
 
-                                    # Capture traditional verbal content
                                     if raw_content := delta.get("content"):
                                         out_delta["content"] = raw_content
                                         full_content_out.append(raw_content)
 
-                                    # Accumulate tool calls structurally from chunks
                                     if cloud_tools := delta.get("tool_calls"):
                                         for ct in cloud_tools:
-                                            # Synthesize partial streams into standard tool schemas
                                             idx = ct.get("index", 0)
                                             while len(tool_calls_buffer) <= idx:
                                                 tool_calls_buffer.append({"function": {"name": "", "arguments": ""}})
@@ -612,7 +661,6 @@ class CustomAIAgent(conversation.ConversationEntity):
                                     _LOGGER.debug(f"Skipping unparseable cloud chunk line: {parse_err}")
                                     yield {"content": "I am sorry, but I encountered a connection error with my cloud AI provider."}
 
-                # Pass our synthesized cloud generator directly to Home Assistant
                 async for _ in chat_log.async_add_delta_content_stream(self.entity_id, _transform_cloud_stream()):
                     pass
 
@@ -669,7 +717,6 @@ class CustomAIAgent(conversation.ConversationEntity):
                 async for _ in chat_log.async_add_delta_content_stream(self.entity_id, _transform_ollama_stream()):
                     pass
 
-                # Print performance trace logs metrics for local hardware optimization
                 p_tokens = final_metadata.get("prompt_eval_count", 0)
                 p_time = final_metadata.get("prompt_eval_duration", 0) / 1e9
                 gen_tokens = final_metadata.get("eval_count", 0)
@@ -678,7 +725,7 @@ class CustomAIAgent(conversation.ConversationEntity):
                 _LOGGER.info(f"🤖 OLLAMA METRICS: Prompt: {p_tokens}t | Generated: {gen_tokens}t | Speed: {speed} | Total: {total_time:.2f}s")
 
             # =================================================================
-            # POST-STREAM SYNCHRONIZATION (Applies to both backends)
+            # POST-STREAM SYNCHRONIZATION
             # =================================================================
             if full_thinking_out:
                 _LOGGER.info(f"🧠 AI THINKING TRACE:\n{''.join(full_thinking_out)}")
@@ -692,14 +739,15 @@ class CustomAIAgent(conversation.ConversationEntity):
             if tool_calls_buffer:
                 safe_message["tool_calls"] = []
                 for tc in tool_calls_buffer:
-                    func = tc.get("function", {})
-                    # Ensure arguments string is parsed into actual dictionary primitives for downstream executors
-                    raw_args = func.get("arguments", {})
-                    parsed_args = json.loads(raw_args) if isinstance(raw_args, str) and raw_args.strip() else raw_args
+                    func = tc.get("function", {}) if isinstance(tc, dict) else getattr(tc, "function", {})
+                    name = func.get("name", "") if isinstance(func, dict) else getattr(func, "name", "")
+                    args = func.get("arguments", {}) if isinstance(func, dict) else getattr(func, "arguments", {})
+                    
+                    parsed_args = json.loads(args) if isinstance(args, str) and args.strip() else args
                     
                     safe_message["tool_calls"].append({
                         "function": {
-                            "name": func.get("name", ""),
+                            "name": name,
                             "arguments": parsed_args
                         }
                     })
@@ -715,13 +763,10 @@ class CustomAIAgent(conversation.ConversationEntity):
                 tool_name = tool_call["function"]["name"]
                 raw_args_payload = tool_call["function"]["arguments"]
                 
-                # Unpack both the repaired dictionary and the dynamic warning string
                 repaired_args, argument_warning = self._fix_invalid_arguments(raw_args_payload)
-                # Prune out the keys that _fix_invalid_arguments just blanked out
                 args = {k: v for k, v in repaired_args.items() if v is not None and v != ""}
 
-                # --- SAVE TO SESSION CACHE ---
-                # Strip 'assist__' if it exists so it maps back cleanly into vector database namespaces
+                # Save to session cache for follow-ups
                 clean_cache_name = tool_name.replace("assist__", "")
                 self.session_tool_cache[session_id].add(clean_cache_name)
                 
@@ -734,16 +779,13 @@ class CustomAIAgent(conversation.ConversationEntity):
                     else:
                         result = await ha_api_instance.async_call_tool(ha_tool_input)
                     
-                    try:
-                        compressed_content = self._compress_tool_response(result, tool_name)
-                    except Exception as compress_err:
-                        _LOGGER.error(f"⚠️ Compression routine error: {compress_err}")
-                        compressed_content = str(result)
+                    # TRACK SUCCESS: If we reach here, the tool executed successfully
+                    successful_tools.append(clean_cache_name)
                     
-                    # If an argument was stripped, stitch the warning directly to the tool results text
+                    compressed_content = self._compress_tool_response(result, tool_name)
                     if argument_warning:
                         compressed_content += argument_warning
-            
+
                     tool_msg = {"role": "tool", "content": compressed_content, "name": tool_name}
                     messages.append(tool_msg)
                     self.history[session_id].append(tool_msg)
@@ -754,33 +796,53 @@ class CustomAIAgent(conversation.ConversationEntity):
                     messages.append(error_msg)
                     self.history[session_id].append(error_msg)
 
+        # --- COMMIT TO TOOL CACHE ON SUCCESS ---
+        if successful_tools:
+            # We use a set to ensure unique tools are saved for this routine
+            unique_tools = list(set(successful_tools))
+            
+            _LOGGER.info(f"💾 [CACHE SUCCESS] Verified routine '{query_hash}'. Saving tools: {unique_tools}")
+            
+            self.semantic_cache[query_hash] = {
+                "tools": unique_tools,
+                "memories": personal_memories
+            }
+            self.hass.async_add_executor_job(self._save_cache)
 
-    async def _fetch_context(self, query: str) -> tuple[list, str]:
-        """Fetch embeddings and query Qdrant dynamically on every request."""
 
-        # --- BYPASS RAG SEARCH ---
+    async def _fetch_context(self, query: str) -> tuple[list, str, str]:
+        """Fetch embeddings and query Qdrant, using a persistent cache for exact matches."""
+  
+        # --- 1. CHECK THE SEMANTIC CACHE FIRST ---
+        clean_query = query.lower().strip()
+        query_hash = hashlib.md5(clean_query.encode()).hexdigest()
+
+        # RAG disabled, exit
         if not self.use_rag:
             _LOGGER.info("ℹ️ Embedding model set to 'None'. Bypassing vector search and unlocking all tools.")
-            return None, ""
-        
+            return None, "", query_hash
+
+        # CACHE HIT
+        if query_hash in self.semantic_cache:
+            cached_data = self.semantic_cache[query_hash]
+            _LOGGER.info(f"⚡ [CACHE HIT] Bypassing Vector Search! 0ms Retrieval for routine command.")
+            _LOGGER.info(f"⚡ [CACHE HITS] Injected Cached Tools: {cached_data['tools']}")
+            return cached_data["tools"], cached_data["memories"], query_hash
+
+        # --- 2. RUN OLLAMA EMBEDDINGS (CACHE MISS) ---
         _LOGGER.info(f"🔍 [VECTOR SEARCH] Requesting embedding for: '{query}'")
         try:
             timeout = aiohttp.ClientTimeout(total=30.0)
-            # Use the dedicated embed API key
             headers = {"Authorization": f"Bearer {self.embed_api_key}"} if self.embed_api_key else {}
-            # Check the embed URL for SSL
             ssl_context = get_default_context() if self.embed_url_base.startswith("https") else False
-            # Get the keep_alive config from UI
             raw_keep_alive = self.entry.options.get("keep_alive", -1)
             keep_alive_val = f"{raw_keep_alive}m" if raw_keep_alive != -1 else -1
 
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                # Check the embed_backend_type to format the payload correctly
                 if self.embed_backend_type in ["openai_official", "openai_compatible"]:
                     payload = {"model": self.embedding_model, "input": query}
-                else: # Ollama local backend
+                else: 
                     payload = {"model": self.embedding_model, "prompt": query}
-                    # Add keep_alive only for Ollama local backend
                     if self.embed_backend_type == "local_ollama" and keep_alive_val != -1:
                         payload["keep_alive"] = keep_alive_val
 
@@ -792,114 +854,132 @@ class CustomAIAgent(conversation.ConversationEntity):
                 ) as resp:
                     if resp.status != 200: 
                         _LOGGER.error(f"Embedding request failed with status {resp.status}: {await resp.text()}")
-                        return [], ""
+                        return [], "", query_hash
                     data = await resp.json()
-                    # OpenAI uses data["data"][0]["embedding"], Ollama uses data["embedding"]
                     query_vector = data.get("embedding") or (data.get("data", [{}])[0].get("embedding") if "data" in data else None)
-                    if not query_vector: return [], ""
+                    if not query_vector: return [], "", query_hash
 
         except Exception as e:
             _LOGGER.error(f"❌ Failed to connect to Ollama Embeddings: {e}")
-            return [], ""
+            return [], "", query_hash
 
-        # Get vector DB client
         client = await self._get_vector_db_client()
 
-        # Always inject these fallback tools regardless of the search
         always_allow = ["smart_web_search", "GetLiveContext"]
         unlocked_tools = list(always_allow)
 
         _LOGGER.info("🔍 [VECTOR SEARCH] Querying Qdrant Database...")
-        
-        # --- PADDING METHOD APPLIED HERE ---
-        # Pad the search limit mathematically to account for potential blacklisted hits
         padded_limit = self.TOOL_LIMIT + len(self.blacklisted_tools)
 
-        try:
-            async with asyncio.timeout(5.0):
-                tool_results, fact_results = await asyncio.gather(
-                    client.query_points(collection_name="tools_collection", query=query_vector, limit=padded_limit, with_payload=True),
-                    client.query_points(collection_name="memories_collection", query=query_vector, limit=self.MEMORY_LIMIT, with_payload=True)
-                )
-        except TimeoutError:
-            _LOGGER.error("❌ Qdrant vector search timed out after 5 seconds.")
-            return unlocked_tools, "" # Return default tools so the AI can still attempt an answer
-        
-        padded_limit = self.TOOL_LIMIT + len(self.blacklisted_tools)
+        dense_query_vector = query_vector
 
-        # 1. Build an array of async tasks (Tools collection is ALWAYS index 0)
+        def build_hybrid_task(collection, limit_val):
+            return client.query_points(
+                collection_name=collection,
+                prefetch=[
+                    models.Prefetch(
+                        query=models.Document(text=query, model="qdrant/bm25"),
+                        using="keyword_sparse",
+                        limit=limit_val,
+                    ),
+                    models.Prefetch(
+                        query=dense_query_vector,
+                        using="qwen_dense",
+                        limit=limit_val,
+                    ),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                limit=limit_val,
+                with_payload=True
+            )
+
         qdrant_tasks = [
-            client.query_points(collection_name="tools_collection", query=query_vector, limit=padded_limit, with_payload=True)
+            build_hybrid_task("tools_collection", padded_limit)
         ]
         
-        # 2. Append tasks for memory collections ONLY if the feature is enabled
         if self.MEMORY_ENABLED:
             for col_name in self.MEMORY_COLLECTIONS:
                 qdrant_tasks.append(
-                    client.query_points(collection_name=col_name, query=query_vector, limit=self.MEMORY_LIMIT, with_payload=True)
+                    client.query_points(
+                        collection_name=col_name, 
+                        query=dense_query_vector, 
+                        using="qwen_dense", 
+                        limit=self.MEMORY_LIMIT, 
+                        with_payload=True
+                    )
                 )
 
-        # 3. Fire them all simultaneously
         try:
             async with asyncio.timeout(5.0):
-                db_results = await asyncio.gather(*qdrant_tasks)
+                db_results = await asyncio.gather(*qdrant_tasks, return_exceptions=True)
         except TimeoutError:
             _LOGGER.error("❌ Qdrant vector search timed out after 5 seconds.")
-            return unlocked_tools, ""
+            return unlocked_tools, "", query_hash
 
-        # Separate the results back out safely
         tool_results = db_results[0]
         memory_results_list = db_results[1:] if self.MEMORY_ENABLED else []
 
-        _LOGGER.info("--- QDRANT TOOL SEARCH SCORES ---")
-        valid_tools_injected = 0
-        for hit in tool_results.points:
-            tool_name = hit.payload.get("tool_id") or hit.payload.get("tool_name")
-            clean_name = tool_name.replace("assist__", "")
-            
-            if clean_name in self.blacklisted_tools:
-                continue
-                
-            passes_threshold = hit.score >= self.TOOL_COSINE_LIMIT
-            _LOGGER.info(f"🛠️ Tool: {tool_name:<25} | Cosine Score: {hit.score:.4f} | Pass: {passes_threshold}")
-            
-            if passes_threshold:
-                unlocked_tools.append(tool_name)
-                valid_tools_injected += 1
-                
-            if valid_tools_injected >= self.TOOL_LIMIT:
-                break
+        _LOGGER.info("--- QDRANT TOOL SEARCH SCORES (HYBRID RRF) ---")
         
-        # Process memories ONLY if the feature is enabled
+        if isinstance(tool_results, Exception):
+            _LOGGER.error(f"❌ CRITICAL: Failed to query tools_collection: {tool_results}")
+        else:
+            top_score = tool_results.points[0].score if tool_results.points else 1.0
+            dynamic_threshold = top_score * self.TOOL_COSINE_LIMIT 
+
+            valid_tools_injected = 0
+            for hit in tool_results.points:
+                tool_name = hit.payload.get("tool_id") or hit.payload.get("tool_name")
+                clean_name = tool_name.replace("assist__", "")
+                
+                if clean_name in self.blacklisted_tools:
+                    continue
+                
+                passes_threshold = hit.score >= dynamic_threshold
+                _LOGGER.info(f"🛠️ Tool: {tool_name:<25} | RRF Score: {hit.score:.4f} | Pass: {passes_threshold}")
+                
+                if passes_threshold:
+                    if tool_name not in unlocked_tools:
+                        unlocked_tools.append(tool_name)
+                    valid_tools_injected += 1
+                    
+                if valid_tools_injected >= self.TOOL_LIMIT:
+                    break
+        
         found_facts = []
         if self.MEMORY_ENABLED:
-            _LOGGER.info("--- QDRANT MEMORY SEARCH SCORES ---")
             raw_facts = []
             for idx, col_name in enumerate(self.MEMORY_COLLECTIONS):
                 col_results = memory_results_list[idx]
+                if isinstance(col_results, Exception): continue
                 for hit in col_results.points:
                     content = hit.payload.get('content', '')
-                    short_content = (content[:60] + '...') if len(content) > 60 else content
-                    passes_threshold = hit.score >= self.MEMORY_COSINE_LIMIT
-                    
-                    _LOGGER.info(f"🧠 Memory [{col_name}]: {short_content:<20} | Cosine: {hit.score:.4f} | Pass: {passes_threshold}")
-                    
-                    if passes_threshold:
+                    if hit.score >= self.MEMORY_COSINE_LIMIT:
                         raw_facts.append((hit.score, f"- {content}"))
 
             raw_facts.sort(key=lambda x: x[0], reverse=True)
             found_facts = [fact[1] for fact in raw_facts[:self.MEMORY_LIMIT]]
 
         memories = "\n".join(found_facts) if found_facts else ""
+        final_tools = list(set(unlocked_tools))
 
-        _LOGGER.info(f"🔓 [FINAL UNLOCKED TOOLS]: {unlocked_tools}")
-        _LOGGER.info(f"🧠 [FINAL RETRIEVED MEMORIES]: {len(found_facts)} facts injection ready.")
+        _LOGGER.info(f"💾 [CACHE MISS] This is a new command: '{clean_query}'")
+        
+        return final_tools, memories, query_hash
+    
 
-        return unlocked_tools, memories
+    async def _execute_tool_loop(
+            self, 
+            messages, 
+            tool_schemas, 
+            ha_api_instance, 
+            session_id: str, 
+            query_hash: str, 
+            memories: str):
 
-
-    async def _execute_tool_loop(self, messages, tool_schemas, ha_api_instance, session_id: str):
         max_iterations = self.max_iterations
+        # Track ONLY tools that execute successfully during this turn for caching
+        successful_tools = []
         
         for iteration in range(max_iterations):
             _LOGGER.info(
@@ -924,12 +1004,8 @@ class CustomAIAgent(conversation.ConversationEntity):
             selected_model = self.llm_model
             use_thinking = self.entry.options.get("thinking", False)
             
-            # 4. Format the keep_alive variable for Ollama
             raw_keep_alive = self.entry.options.get("keep_alive", -1)
-            if raw_keep_alive == -1:
-                keep_alive_val = -1
-            else:
-                keep_alive_val = f"{raw_keep_alive}m"  # Converts 5 to "5m"
+            keep_alive_val = -1 if raw_keep_alive == -1 else f"{raw_keep_alive}m"
 
             ollama_client = await self._get_ollama_client()
 
@@ -951,7 +1027,6 @@ class CustomAIAgent(conversation.ConversationEntity):
             speed = f"{(gen_tokens / (total_time - p_time)):.2f} t/s" if (total_time - p_time) > 0 else "N/A"
             _LOGGER.info(f"🤖 OLLAMA VERBOSE: Prompt: {p_tokens}t | Generated: {gen_tokens}t | Speed: {speed} | Total: {total_time:.2f}s")
             
-            # Deconstruct Ollama's custom response object into plain Python primitives
             raw_message = response.get("message", {}) if isinstance(response, dict) else getattr(response, "message", {})
             raw_text = raw_message.get("content", "") if isinstance(raw_message, dict) else getattr(raw_message, "content", "")
             raw_tool_calls = raw_message.get("tool_calls", []) if isinstance(raw_message, dict) else getattr(raw_message, "tool_calls", [])
@@ -959,10 +1034,8 @@ class CustomAIAgent(conversation.ConversationEntity):
             _LOGGER.info(f"📥 [RAW UNFILTERED OLLAMA RESPONSE]:\n{raw_text}")
             final_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip() if raw_text else ""
             
-            # 100% Clean Dictionary for json.dumps() compatibility
             safe_message = {"role": "assistant", "content": final_text}
 
-            # Safely rebuild tool calls into native dictionaries
             if raw_tool_calls:
                 safe_message["tool_calls"] = []
                 for tc in raw_tool_calls:
@@ -986,16 +1059,14 @@ class CustomAIAgent(conversation.ConversationEntity):
 
             messages.append(safe_message)
             
+            # Execute tools manually
             for tool_call in safe_message["tool_calls"]:
                 tool_name = tool_call["function"]["name"]
                 raw_args_payload = tool_call["function"]["arguments"]
                 
-                # Unpack both the repaired dictionary and the dynamic warning string
                 repaired_args, argument_warning = self._fix_invalid_arguments(raw_args_payload)
-                # Prune out the keys that _fix_invalid_arguments just blanked out
                 args = {k: v for k, v in repaired_args.items() if v is not None and v != ""}
                 
-                # --- SAVE TO SESSION CACHE ---
                 clean_cache_name = tool_name.replace("assist__", "")
                 self.session_tool_cache[session_id].add(clean_cache_name)
                 
@@ -1009,13 +1080,15 @@ class CustomAIAgent(conversation.ConversationEntity):
                     else:
                         result = await ha_api_instance.async_call_tool(ha_tool_input)
                     
+                    # TRACK SUCCESS: If we reach here, the tool executed successfully
+                    successful_tools.append(clean_cache_name)
+                    
                     try:
                         compressed_content = self._compress_tool_response(result, tool_name)
                     except Exception as compress_err:
-                        _LOGGER.error(f"⚠️ Compression routine error inside fallback loop: {compress_err}")
+                        _LOGGER.error(f"⚠️ Compression routine error inside loop: {compress_err}")
                         compressed_content = str(result)
 
-                    # If an argument was stripped, stitch the warning directly to the tool results text
                     if argument_warning:
                         compressed_content += argument_warning
 
@@ -1025,6 +1098,19 @@ class CustomAIAgent(conversation.ConversationEntity):
                     _LOGGER.error(f"❌ Tool execution exception {tool_name}: {e}")
                     messages.append({"role": "tool", "content": json.dumps({"error": str(e)}), "name": tool_name})
 
+        # --- COMMIT TO CACHE ON SUCCESS ---
+        if successful_tools:
+            # We use a set to ensure unique tools are saved for this routine
+            unique_tools = list(set(successful_tools))
+            _LOGGER.info(f"💾 [CACHE SUCCESS] Verified routine '{query_hash}'. Saving tools: {unique_tools}")
+            
+            self.semantic_cache[query_hash] = {
+                "tools": unique_tools,
+                "memories": memories
+            }
+            # Schedule the save to disk safely
+            self.hass.async_add_executor_job(self._save_cache)
+            
         return "I had to stop thinking because I used too many tools."
 
 
