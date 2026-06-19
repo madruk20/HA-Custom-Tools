@@ -286,7 +286,7 @@ class CustomAIAgent(conversation.ConversationEntity):
                     location_name = area.name
                     active_area_name = area.name.lower().strip()
 
-        # Fetch the strategy from our Config Flow
+        # Fetch the device injection strategy from Config Flow
         strategy = self.entry.options.get("device_injection_strategy", "current_room")
         allowed_area_names = []
 
@@ -324,29 +324,52 @@ class CustomAIAgent(conversation.ConversationEntity):
                 ha_base_prompt = re.sub(r'\n\s+areas:\s+[^\n]+', '', ha_base_prompt)
                 _LOGGER.debug(f"✂️ Applied Regex Room Filter for areas: {allowed_area_names}")
 
-        # Assemble the final prompt
+        # Assemble the final static prompt
         static_prefix = self.entry.options.get(
             "Instructions", 
             "You are the conversational brain of a smart home..."
         )
         
+        # Assemble final device list
         ha_context = f"\n### HOME ASSISTANT ENTITIES\n{ha_base_prompt}\n"
 
+        # Calculate time variables for formatting
         now = dt_util.now()
         day = now.day
         suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
         day_str = f"{now.strftime('%B')} {day}{suffix}, {now.strftime('%Y')}"
 
-        dynamic_suffix = (
-            f"\n### TIME AND LOCATION CONTEXT\n"
-            f"Physical Location: You are physically located in the {location_name}.\n"
-            f"If the user requests context or operations for an entity outside of the injected context, you MUST call `GetLiveContext` for that specific area first to discover it.\n"
-            f"Current Context: Today is {now.strftime('%A')}, {day_str} and the current time is {now.strftime('%-I:%M %p')}.\n"
-        )
+        # Fetch the user's custom template from configuration options
+        suffix_template = self.entry.options.get("dynamic_suffix", "")
 
+        if suffix_template.strip():
+            try:
+                # Safely map keys to template placeholders
+                rendered_suffix = suffix_template.format(
+                    location_name=location_name,
+                    day_of_week=now.strftime('%A'),
+                    date_str=day_str,
+                    current_time=now.strftime('%-I:%M %p')
+                )
+                dynamic_suffix = f"\n{rendered_suffix}\n"
+            except KeyError as err:
+                _LOGGER.error(f"❌ Custom dynamic_suffix prompt template contains an invalid placeholder key: {err}. Falling back to default layout.")
+                dynamic_suffix = (
+                    f"\n### TIME AND LOCATION CONTEXT\n"
+                    f"Physical Location: You are physically located in the {location_name}.\n"
+                    f"Current Context: Today is {now.strftime('%A')}, {day_str} and the current time is {now.strftime('%-I:%M %p')}.\n"
+                )
+            except Exception as err:
+                _LOGGER.error(f"❌ Failed rendering custom dynamic_suffix template: {err}")
+                dynamic_suffix = ""
+        else:
+            dynamic_suffix = ""
+
+        # Add any relevant memories to the dynamic prompt
         if personal_memories: 
             dynamic_suffix += f"\n### PERSONAL MEMORIES & FACTS\n{personal_memories}\n"
-            
+        
+        # Final prompt: Static prompt - devices - dynamic prompt elements
         return f"{static_prefix}{ha_context}{dynamic_suffix}"
 
     def _compress_tool_response(self, result, tool_name: str) -> str:

@@ -26,17 +26,24 @@ ALL_NATIVE_HA_TOOLS = [
 ]
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are the conversational brain of a smart home in Pacific Palisades.\n\n"
+    "You are the conversational brain of a smart home in (location).\n\n"
     "### OPERATIONAL RULES\n"
     "- VERBAL RESPONSES: Respond in clean, unformatted plain text ONLY. Never use Markdown (*, #, bolds, lists) in final verbal answers.\n"
     "- DEVICE CONTROL: Select and call the exact tool name from the available tool list. Pass ONLY target 'name' and 'domain' or 'area' and 'domain' to the tool arguments. Never fill in unrequested optional parameters.\n"
     "- REAL-TIME STATES: Never guess or rely on conversation history to determine the current state of any device, sensor, or alarm times. You MUST call the `GetLiveContext` tool immediately to verify current truth. (Exception: The current time and date are dynamically provided below under Time and Location Context and can be answered immediately without tool calls).\n\n"
     "### TOOL ENFORCEMENT RULES\n"
-    "- KNOWLEDGE/FACTS: Your internal data for world facts, current events, and politics is empty. To answer these, you MUST call `smart_web_search` tool.\n"
+    "- KNOWLEDGE/FACTS: Your internal data for world facts, current events, and politics is outdated. To answer these, you MUST call `smart_web_search` tool.\n"
     "- RETRIEVAL: Use `stock_and_retail_price_lookup` tool for market tickers/investments, electronics, shopping, or product costs.\n"
     "- ALARMS: Use `alarm_manager` tool for all requests to set or cancel an alarm.\n"
     "- MUSIC: Use `music_player` tool to control playing music on any media player or speaker.\n"
     "- CAMERAS: Use `stream_camera_to_tv` tool to view any security cameras. Leave TV blank if user does not specify a TV."
+)
+
+DEFAULT_DYNAMIC_SUFFIX = (
+    "### TIME AND LOCATION CONTEXT\n"
+    "Physical Location: You are physically located in the {location_name}.\n"
+    "If the user requests context or operations for an entity outside of the injected context, you MUST call `GetLiveContext` for that specific area first to discover it.\n"
+    "Current Context: Today is {day_of_week}, {date_str} and the current time is {current_time}."
 )
 
 CLOUD_LLM_MODELS = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "llama3-70b-8192"]
@@ -156,6 +163,7 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="tuning_settings",
             data_schema=vol.Schema({
                 vol.Optional("Instructions", default=options.get("Instructions", DEFAULT_SYSTEM_PROMPT), description="The core System Prompt defining agent behavior."): selector.TemplateSelector(),
+                vol.Optional("dynamic_suffix", default=options.get("dynamic_suffix", DEFAULT_DYNAMIC_SUFFIX)): selector.TemplateSelector(),
                 vol.Optional("thinking", default=options.get("thinking", False), description="Enable <think> tags for supported reasoning models."): selector.BooleanSelector(),
                 vol.Optional("temperature", default=options.get("temperature", 0.5), description="Creativity/Randomness of the response."): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1, step=0.1, mode=NumberSelectorMode.SLIDER)),
                 vol.Optional("top_p", default=options.get("top_p", 0.9), description="Nucleus sampling probability."): selector.NumberSelector(selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
