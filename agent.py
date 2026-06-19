@@ -277,8 +277,8 @@ class CustomAIAgent(conversation.ConversationEntity):
         return active_tools, tool_schemas
     
 
-    def _build_system_prompt(self, device_id: str, personal_memories: str, ha_base_prompt: str) -> str:
-        """Assembles prompt mirroring HA's native organization based on UI Injection Strategy."""
+    def _build_prompts(self, device_id: str, personal_memories: str, ha_base_prompt: str) -> tuple[str, str]:
+        """Assembles the static system prompt and the dynamic user prepend."""
         location_name = "Unknown"
         active_area_name = ""
         
@@ -330,53 +330,62 @@ class CustomAIAgent(conversation.ConversationEntity):
                 ha_base_prompt = re.sub(r'\n\s+areas:\s+[^\n]+', '', ha_base_prompt)
                 _LOGGER.debug(f"✂️ Applied Regex Room Filter for areas: {allowed_area_names}")
 
-        # Assemble the final static prompt
+        # =================================================================
+        # 1. ASSEMBLE THE 100% STATIC SYSTEM PROMPT 
+        # =================================================================
         static_prefix = self.entry.options.get(
             "Instructions", 
             "You are the conversational brain of a smart home..."
         )
-        
-        # Assemble final device list
         ha_context = f"\n### HOME ASSISTANT ENTITIES\n{ha_base_prompt}\n"
+        
+        static_system_prompt = f"{static_prefix}{ha_context}"
 
-        # Calculate time variables for formatting
+        # =================================================================
+        # 2. ASSEMBLE THE DYNAMIC CONTEXT (For the User Prepend)
+        # =================================================================
         now = dt_util.now()
         day = now.day
         suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
         day_str = f"{now.strftime('%B')} {day}{suffix}, {now.strftime('%Y')}"
 
-        # Fetch the user's custom template from configuration options
         suffix_template = self.entry.options.get("dynamic_suffix", "")
 
         if suffix_template.strip():
             try:
-                # Safely map keys to template placeholders
+                # Render the user's custom UI template
                 rendered_suffix = suffix_template.format(
                     location_name=location_name,
                     day_of_week=now.strftime('%A'),
                     date_str=day_str,
                     current_time=now.strftime('%-I:%M %p')
                 )
-                dynamic_suffix = f"\n{rendered_suffix}\n"
+                dynamic_context = f"{rendered_suffix}\n"
             except KeyError as err:
-                _LOGGER.error(f"❌ Custom dynamic_suffix prompt template contains an invalid placeholder key: {err}. Falling back to default layout.")
-                dynamic_suffix = (
-                    f"\n### TIME AND LOCATION CONTEXT\n"
+                _LOGGER.error(f"❌ Custom dynamic_suffix prompt template contains an invalid placeholder key: {err}.")
+                dynamic_context = (
                     f"Physical Location: You are physically located in the {location_name}.\n"
                     f"Current Context: Today is {now.strftime('%A')}, {day_str} and the current time is {now.strftime('%-I:%M %p')}.\n"
                 )
             except Exception as err:
                 _LOGGER.error(f"❌ Failed rendering custom dynamic_suffix template: {err}")
-                dynamic_suffix = ""
+                dynamic_context = ""
         else:
-            dynamic_suffix = ""
+            dynamic_context = ""
 
-        # Add any relevant memories to the dynamic prompt
+        # Inject RAG memories into the dynamic block, as they change every turn
         if personal_memories: 
-            dynamic_suffix += f"\n### PERSONAL MEMORIES & FACTS\n{personal_memories}\n"
-        
-        # Final prompt: Static prompt - devices - dynamic prompt elements
-        return f"{static_prefix}{ha_context}{dynamic_suffix}"
+            dynamic_context += f"\n### PERSONAL MEMORIES & FACTS\n{personal_memories}\n"
+
+        # Wrap the dynamic output in structural brackets
+        if dynamic_context.strip():
+            dynamic_user_prepend = f"[ENVIRONMENTAL DATA:\n{dynamic_context.strip()}]\n\n"
+        else:
+            dynamic_user_prepend = ""
+
+        # Return both parts cleanly decoupled
+        return static_system_prompt, dynamic_user_prepend
+
 
     def _compress_tool_response(self, result, tool_name: str) -> str:
         """Compresses HA intent responses to save tokens and maintain fine-tuning patterns."""
@@ -547,7 +556,7 @@ class CustomAIAgent(conversation.ConversationEntity):
         active_tools, active_tool_schemas = self._assemble_and_filter_tools(ha_api_instance, unlocked_tool_names)
 
         # 2. Build System Prompt
-        system_prompt = self._build_system_prompt(
+        system_prompt, dynamic_prepend = self._build_prompts(
             user_input.device_id, 
             personal_memories, 
             ha_api_instance.api_prompt
@@ -565,7 +574,10 @@ class CustomAIAgent(conversation.ConversationEntity):
                         images.append(attachment.path)
                 break 
 
-        user_msg = {"role": "user", "content": user_query}
+        # Format the user message with the prepended dynamic context
+        final_user_content = f"{dynamic_prepend}{user_query}"
+
+        user_msg = {"role": "user", "content": final_user_content}
         if images:
             user_msg["images"] = images
 
