@@ -35,6 +35,9 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 * **Injection Limits & Thresholds:** Fine-tune the cosine similarity thresholds. This dictates how confident the vector search must be before injecting a tool or memory into the prompt.
 * **Clear Semantic Cache:** A toggle to instantly wipe the saved RAM/disk cache if the AI learns a bad tool routine.
 
+### 5. Device Control
+* **Dynamic Device Control:** Expose devices based on specific rooms or just the room the request is made.
+
 ---
 
 ## 🧠 How the Code Works (Architecture)
