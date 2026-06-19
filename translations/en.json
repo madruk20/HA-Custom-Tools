@@ -2,76 +2,114 @@
   "options": {
     "step": {
       "init": {
-        "title": "AI Agent Configuration",
-        "description": "Configure the core settings for your AI, embeddings, and vector database.",
+        "title": "AI Tools Configuration",
+        "description": "Select a category to configure:",
+        "menu_options": {
+          "provider_settings": "⚙️ LLM Endpoint & Models",
+          "tuning_settings": "🎛️ Context & Parameters",
+          "tool_settings": "🛠️ Tool & Device Management",
+          "memory_settings": "🧠 Memory Settings",
+          "finish": "✅ Save & Reload Integration"
+        }
+      },
+      "provider_settings": {
+        "title": "⚙️ LLM Endpoint & Models",
+        "description": "Configure your AI endpoints and generation models.",
         "data": {
-          "llm_backend_type": "LLM Backend Provider",
-          "llm_url": "LLM Server URL",
-          "llm_api_key": "LLM API Key (Optional)",
+          "llm_backend_type": "LLM Backend Type",
+          "llm_url": "LLM Base URL",
+          "llm_api_key": "LLM API Key",
           "llm_model": "Chat Model",
-          "embed_backend_type": "Embedding Backend Provider",
-          "embed_url": "Embedding Server URL",
-          "embed_api_key": "Embedding API Key (Optional)",
+          "embed_backend_type": "Embedding Backend",
+          "embed_url": "Embedding URL",
+          "embed_api_key": "Embedding API Key",
           "embedding_model": "Embedding Model",
-          "vector_db_backend": "Vector Database Provider",
-          "vector_db_url": "Vector Database URL",
-          "vector_db_api_key": "Vector Database API Key (Optional)",
-          "Instructions": "System Instructions",
-          "thinking": "Enable Reasoning / Thinking Trace",
-          "temperature": "Temperature",
-          "repeat_penalty": "Repeat Penalty",
-          "top_p": "Top-P (Nucleus Sampling)",
-          "top_k": "Top-K",
-          "max_history": "Maximum Chat History",
-          "num_ctx": "Context Window (Tokens)",
-          "num_predict": "Max Response Length (Tokens)",
-          "mirostat": "Mirostat Smoothing",
-          "keep_alive": "Keep Alive in VRAM (Minutes)",
-          "configure_tools": "Configure Tool Filtering & Limits"
+          "vector_db_backend": "Vector DB Software",
+          "vector_db_url": "Vector DB URL",
+          "vector_db_api_key": "Vector DB API Key"
         },
         "data_description": {
           "llm_backend_type": "Select the platform powering your primary chat model.",
           "llm_url": "The full network address to your LLM API (e.g., http://localhost:11434).",
           "llm_api_key": "Leave blank for local Ollama. Required for OpenAI or cloud proxies.",
           "llm_model": "The specific model to use for conversation and tool-calling.",
-          "embed_backend_type": "Select 'None' to disable the vector database/RAG entirely and unlock all tools simultaneously.",
-          "embed_url": "The full address to your embedding API (often identical to your LLM URL).",
+          "embed_backend_type": "Backend used specifically for embeddings/RAG. Select 'None' to disable vector searching.",
+          "embed_url": "Address for the embedding API (e.g., http://localhost:11434).",
           "embed_api_key": "Required if using a protected cloud endpoint for embeddings.",
           "embedding_model": "The model used to convert text into vector embeddings (e.g., nomic-embed-text).",
-          "vector_db_backend": "The software managing your semantic tool search.",
+          "vector_db_backend": "Select your Vector Database software (Currently Qdrant only supported). Select 'None' to disable vector searching.",
           "vector_db_url": "The network address for your vector database (e.g., http://localhost:6333).",
-          "vector_db_api_key": "Authentication key for your vector database, if configured.",
-          "Instructions": "The core personality and strict operational rules for the AI. This overrides standard Home Assistant prompts.",
-          "thinking": "Allows reasoning models to output hidden thinking tokens (like [think] blocks) before answering. Disable for standard models.",
-          "temperature": "Higher values make output more creative, lower values make it more focused and deterministic.",
-          "repeat_penalty": "Strictness against the AI repeating the same phrases. 1.0 = disabled.",
-          "top_p": "Limits word choice to a percentage of the most probable options. Lower values increase focus.",
-          "top_k": "Limits the AI to choosing from only the top K most likely next words.",
-          "max_history": "The maximum number of previous messages to remember in a single conversation thread.",
-          "num_ctx": "The total token memory the AI can use per request. Higher numbers require more VRAM.",
-          "num_predict": "The maximum number of tokens the AI is allowed to generate in a single response.",
-          "mirostat": "An algorithm that actively maintains the quality and perplexity of generated text during long outputs.",
-          "keep_alive": "How long Ollama should keep the models loaded in VRAM after a request (-1 for indefinite, 0 to unload immediately).",
-          "configure_tools": "Toggle on and click Submit to open the advanced Tool Filter menu."
+          "vector_db_api_key": "Authentication key for your vector database, if configured."
         }
       },
-      "tools": {
-        "title": "Tool Filtering & Memory Limits",
-        "description": "Configure how the vector database retrieves and filters available tools and memories for the AI.",
+      "tuning_settings": {
+        "title": "🎛️ Context & Parameters",
+        "description": "Adjust context windows, temperatures, and base instructions.",
         "data": {
-          "blacklisted_tools": "Disabled Tools",
-          "llm_tool_limit": "Maximum Tool Quota",
-          "llm_cosine_threshold": "Cosine Similarity Threshold"
+          "Instructions": "System Prompt",
+          "dynamic_suffix": "Dynamic Prompt",
+          "thinking": "Enable Thinking",
+          "temperature": "Temperature",
+          "top_p": "Top P",
+          "top_k": "Top K",
+          "repeat_penalty": "Repeat Penalty",
+          "max_history": "Session Memory Limit",
+          "num_ctx": "Context Window",
+          "num_predict": "Max Tokens",
+          "mirostat": "Mirostat",
+          "keep_alive": "Keep Alive (Minutes)"
         },
         "data_description": {
+          "Instructions": "The core personality and strict operational rules for the AI. This overrides standard Home Assistant prompts.",
+          "dynamic_suffix": "Appended to the very end of the prompt to maximize cache efficiency. You can use these live placeholders: '{location_name}', '{day_of_week}', '{date_str}', '{current_time}'.",
+          "thinking": "Allows reasoning models to output hidden thinking tokens (like [think] blocks) before answering. Disable for standard models.",
+          "temperature": "Higher values make output more creative, lower values make it more focused and deterministic.",
+          "top_p": "Limits word choice to a percentage of the most probable options. Lower values increase focus.",
+          "top_k": "Limits the AI to choosing from only the top K most likely next words.",
+          "repeat_penalty": "Strictness against the AI repeating the same phrases. 1.0 = disabled.",
+          "max_history": "The maximum number of previous messages to remember in a single conversation thread.",
+          "num_ctx": "The max token context window the AI can use per request. Higher numbers require more VRAM.",
+          "num_predict": "The maximum number of tokens the AI is allowed to generate in a single response.",
+          "mirostat": "An algorithm that actively maintains the quality and perplexity of generated text during long outputs.",
+          "keep_alive": "How long Ollama should keep the models loaded in VRAM after a request (-1 for indefinite, 0 to unload immediately)."
+        }
+      },
+      "tool_settings": {
+        "title": "🛠️ Tool & Device Management",
+        "description": "Manage which tools and devices are accessible.",
+        "data": {
+          "max_tool_iterations": "Max Tool Loops Per Turn",
+          "device_injection_strategy": "Device Context Strategy",
+          "injection_specific_rooms": "Rooms to Always Inject",
+          "blacklisted_tools": "Disabled Tools",
+          "tool_injection_limit": "Injection Limit",
+          "tool_cosine_threshold": "Semantic Threshold",
+          "clear_cache_now": "Clear Semantic Tool Cache"
+        },
+        "data_description": {
+          "max_tool_iterations": "The maximum number of sequential tool calls the AI can make in a single turn before being forced to reply. (Default: 5)",
+          "device_injection_strategy": "Dictates which smart home entities are injected into the system prompt context.",
+          "injection_specific_rooms": "If the 'Static' strategy is selected above, specify exactly which rooms should be visible to the AI.",
           "blacklisted_tools": "Select any tools from this list that you want to permanently hide from the AI. Blacklisted tools will never be injected into the prompt.",
           "tool_injection_limit": "The maximum number of relevant tools the vector database is allowed to inject into a single prompt. (Default: 3)",
-          "tool_cosine_threshold": "The minimum mathematical confidence score required for a tool to be considered relevant to the user's prompt. Lower values allow more tools; higher values require a stricter match. (Default: 0.30)",
+          "tool_cosine_threshold": "The minimum mathematical confidence score required for a tool to be considered relevant to the user's prompt. Lower values allow more ambigious tools; higher values require a stricter match. (Default: 0.30)",
+          "clear_cache_now": "WARNING: Toggle to delete the tool cache and force the AI to re-learn tool habits."
+        }
+      },
+      "memory_settings": {
+        "title": "🧠 Memory Settings",
+        "description": "Configure your vector database for semantic search and facts.",
+        "data": {
+          "enable_memory_injection": "Enable Memory Injection",
+          "memory_collections": "Qdrant Collections",
+          "memory_injection_limit": "Memory Limit",
+          "memory_cosine_threshold": "Semantic Threshold"
+        },
+        "data_description": {
           "enable_memory_injection": "Turn off to disable RAG memory retrieval entirely and only use the vector database for tool selection.",
           "memory_collections": "Type a Qdrant collection name and press Enter to add it. You can query multiple collections (e.g., schedules, facts, preferences).",
-          "memory_injection_limit": "Maximum number of total facts/memories per collection injected into a single prompt. (Default: 3)",
-          "memory_cosine_threshold": "Minimum confidence score for a memory/fact to be considered relevant. (Default: 0.50)",
-          "clear_cache_now": "Toggle on and submit to clear all currently cached tool requests and memories."
+          "memory_injection_limit": "Maximum number of total facts/memories per collection injected into a single prompt turn. (Default: 3)",
+          "memory_cosine_threshold": "Minimum confidence score for a memory/fact to be considered relevant. (Default: 0.50)"
         }
       }
     }
