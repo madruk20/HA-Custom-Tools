@@ -10,9 +10,10 @@ from qdrant_client.models import (
 QDRANT_URL = "http://localhost:6333"
 COLLECTION_NAME = "memories_collection"
 OLLAMA_MODEL = "qwen-embed-2k:latest"
-OLLAMA_URL = "http://localhost/api/embeddings"
+OLLAMA_URL = "http://localhost:11434/api/embeddings"
 qdrant = QdrantClient(url=QDRANT_URL)
 DIMENSIONS = 1024
+
 
 def get_dense_embedding(text):
     payload = {"model": OLLAMA_MODEL, "prompt": text}
@@ -22,26 +23,25 @@ def get_dense_embedding(text):
 def get_consistent_id(name):
     return hashlib.md5(name.encode()).hexdigest()
 
-# --- Initialize Collection ---
-if qdrant.collection_exists(collection_name=COLLECTION_NAME):
-    print(f"Collection '{COLLECTION_NAME}' already exists. Deleting to rebuild with Hybrid Indexes...")
-    qdrant.delete_collection(collection_name=COLLECTION_NAME)
-
-print(f"Creating Collection '{COLLECTION_NAME}' with Dense and Sparse indexes...")
-qdrant.create_collection(
-    collection_name=COLLECTION_NAME,
-    vectors_config={
-        "qwen_dense": VectorParams(size=DIMENSIONS, distance=Distance.COSINE),
-    },
-    sparse_vectors_config={
-        "keyword_sparse": SparseVectorParams(modifier=Modifier.IDF),
-    }
-)
+# --- Initialize Collection (Updated Logic) ---
+if not qdrant.collection_exists(collection_name=COLLECTION_NAME):
+    print(f"Collection '{COLLECTION_NAME}' does not exist. Creating with Dense and Sparse indexes...")
+    qdrant.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config={
+            "qwen_dense": VectorParams(size=DIMENSIONS, distance=Distance.COSINE),
+        },
+        sparse_vectors_config={
+            "keyword_sparse": SparseVectorParams(modifier=Modifier.IDF),
+        }
+    )
+else:
+    print(f"Collection '{COLLECTION_NAME}' already exists. Proceeding to upsert data...")
 
 # --- Memories Data ---
 memories_to_add = [
-    {"content": "John Doe's birthday is January 9th 1996."},
-    {"content": "Jane Doe is a family member."},
+    {"content": "Chuck's birthday is January 15th 1978."},
+    {"content": "Rhonda Pardridge is a family member."},
     {"content": "Madruk prefers pepperoni pizza with extra sauce and extra cheese."},
     {"content": "The home theater system uses a 9.2-channel network AV receiver."}
 ]
@@ -60,6 +60,8 @@ for mem in memories_to_add:
         collection_name=COLLECTION_NAME,
         points=[
             PointStruct(
+                # Because the ID is a hash of the content, identical content will overwrite itself, 
+                # preventing duplicates. New content will be added as new points.
                 id=get_consistent_id(mem["content"]),
                 vector={
                     "qwen_dense": dense_vec,
@@ -74,4 +76,3 @@ for mem in memories_to_add:
     )
 
 print("Ingestion complete!")
-

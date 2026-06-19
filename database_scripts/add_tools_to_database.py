@@ -1,6 +1,5 @@
-import requests
-import uuid
 import hashlib
+import requests
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     VectorParams, Distance, SparseVectorParams, 
@@ -16,21 +15,6 @@ DIMENSIONS = 1024
 
 qdrant = QdrantClient(url=QDRANT_URL)
 
-# Build the collection for Hybrid Search
-if qdrant.collection_exists(collection_name=COLLECTION_NAME):
-    print(f"Deleting old collection to resize for Hybrid Search...")
-    qdrant.delete_collection(collection_name=COLLECTION_NAME)
-
-qdrant.create_collection(
-    collection_name=COLLECTION_NAME,
-    vectors_config={
-        "qwen_dense": VectorParams(size=DIMENSIONS, distance=Distance.COSINE),
-    },
-    sparse_vectors_config={
-        "keyword_sparse": SparseVectorParams(modifier=Modifier.IDF),
-    }
-)
-
 def get_dense_embedding(text):
     payload = {"model": OLLAMA_MODEL, "prompt": text}
     response = requests.post(OLLAMA_URL, json=payload).json()
@@ -39,10 +23,24 @@ def get_dense_embedding(text):
 def get_consistent_id(name):
     return hashlib.md5(name.encode()).hexdigest()
 
+# --- Initialize Collection (Updated Logic) ---
+if not qdrant.collection_exists(collection_name=COLLECTION_NAME):
+    print(f"Collection '{COLLECTION_NAME}' does not exist. Creating for Hybrid Search...")
+    qdrant.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config={
+            "qwen_dense": VectorParams(size=DIMENSIONS, distance=Distance.COSINE),
+        },
+        sparse_vectors_config={
+            "keyword_sparse": SparseVectorParams(modifier=Modifier.IDF),
+        }
+    )
+    print("Hybrid Collection created successfully.")
+else:
+    print(f"Collection '{COLLECTION_NAME}' already exists. Proceeding to upsert data...")
 
-print("Hybrid Collection created successfully.")
 
-# --- MASTER TOOL LIST (Delete any tools you don't want uploaded) ---
+# --- MASTER TOOL LIST ---
 tools_to_add = [
     {
         "name": "HassTurnOn",
@@ -363,6 +361,8 @@ for tool in tools_to_add:
         collection_name=COLLECTION_NAME,
         points=[
             PointStruct(
+                # Using the tool name as the hash seed means updating a tool description
+                # will cleanly overwrite the old entry instead of creating a duplicate.
                 id=get_consistent_id(tool["name"]),
                 vector={
                     "qwen_dense": dense_vec,
