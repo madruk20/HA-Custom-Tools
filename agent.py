@@ -1,30 +1,31 @@
-import logging
-import aiohttp
+# Standard Library Imports
 import asyncio
 from datetime import datetime
 import hashlib
-import json
-import os
-import re
-import ollama
-from voluptuous_openapi import convert
 import importlib
-import pkgutil
 import inspect
+import json
+import logging
+import os
 from pathlib import Path
+import pkgutil
+import re
+
+# Third-Party Imports
+import aiohttp
+import ollama
 from qdrant_client import models
+from voluptuous_openapi import convert
 
-import homeassistant.util.dt as dt_util
-from homeassistant.core import HomeAssistant
+# Home Assistant Imports
 from homeassistant.components import conversation
-from homeassistant.helpers import llm
-from homeassistant.util.ssl import get_default_context
 from homeassistant.config_entries import ConfigEntry
-import homeassistant.helpers.device_registry as dr
-import homeassistant.helpers.area_registry as ar
-
-from urllib.parse import urlparse
-
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import llm
+import homeassistant.util.dt as dt_util
+from homeassistant.util.ssl import get_default_context
 
 
 _LOGGER = logging.getLogger(__name__)
