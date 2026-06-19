@@ -22,6 +22,7 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 * **LLM Model Selection:** Dynamically fetches and lists the active models currently loaded on your server (ollama only).
 * **Embed Backend Type:** Only Qdrant is available right now.  Select None to disable.
 * **Embed URL & API Key:** Point this to your inference server.
+* **Embed Model Selection:** Select the emebd model to use.
 * **Qdrant DB URL & API Key:** Point this to your vector database.
 
 ### 2. Context & Parameters
