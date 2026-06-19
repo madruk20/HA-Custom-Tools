@@ -52,4 +52,4 @@ When a user speaks to the agent, the request goes through a strict pipeline:
 ---
 
 ### Dynamic Overrides
-The integration aggressively patches Home Assistant's core prompt mechanisms. It blanks out HA's native system prompts (e.g. `DEFAULT_INSTRUCTIONS_PROMPT = ""`) so that the agent has 100% complete control over the context window, ensuring local models aren't distracted by boilerplate text.
+The integration patches Home Assistant's core prompt mechanisms. It blanks out HA's native system prompts (e.g. `DEFAULT_INSTRUCTIONS_PROMPT = ""`) so that the agent has 100% complete control over the context window, ensuring local models aren't distracted by boilerplate text.
