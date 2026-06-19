@@ -17,9 +17,12 @@ A customizable conversational AI agentfor Home Assistant. This integration focus
 The configuration is split into an easy-to-navigate menu within Home Assistant's UI.
 
 ### 1. LLM Endpoint & Models
-* **Backend Type:** Choose between local Ollama or an OpenAI-compatible proxy (note: using the compatible proxy setting allows you to use standard API formats locally without relying on external cloud services).
-* **URL & API Key:** Point this to your inference server.
-* **Model Selection:** Dynamically fetches and lists the active models currently loaded on your server (ollama only).
+* **LLM Backend Type:** Choose between local Ollama or an OpenAI-compatible proxy (note: using the compatible proxy setting allows you to use standard API formats locally without relying on external cloud services).
+* **LLM URL & API Key:** Point this to your inference server.
+* **LLM Model Selection:** Dynamically fetches and lists the active models currently loaded on your server (ollama only).
+* **Embed Backend Type:** Only Qdrant is available right now.  Select None to disable.
+* **Embed URL & API Key:** Point this to your inference server.
+* **Qdrant DB URL & API Key:** Point this to your vector database.
 
 ### 2. Context & Parameters
 * **System Instructions:** The base prompt.
@@ -28,13 +31,15 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 
 ### 3. Tool & Device Management
 * **Tool Blacklists:** Select any native or custom tools you want to strictly hide from the AI.
-* **Injection Limits & Thresholds:** Fine-tune the cosine similarity thresholds. This dictates how confident the vector search must be before injecting a tool or memory into the prompt.
+* **Injection Limits & Thresholds:** Fine-tune the cosine similarity thresholds. This dictates how confident the vector search must be before injecting a tool into the prompt.
 * **Clear Semantic Cache:** A toggle to instantly wipe the saved RAM/disk cache if the AI learns a bad tool routine.
 * **Dynamic Device Control:** Expose devices based on specific rooms or just the room the request is made.
 
 ### 4. Vector Database & Embeddings
-* **Embed Backend & Model:** Select the embedding model used to map user queries (e.g., `qwen-embed` or `nomic-embed-text`).
-* **Qdrant URL:** The address of your local Qdrant vector database used for storing tool schemas and personal memory facts.
+* **Enable Memory Injection:** Toggle to inject collection memories from the vector database.
+* **Qdrant Collections:** Select which collections you want to pull memories from.
+* **Memory Injection Limit:** How many memories to inject into the prompt.
+* **Semantic Threshold:** Set the threshold of the memory to be considered relevant.
 
 ---
 
