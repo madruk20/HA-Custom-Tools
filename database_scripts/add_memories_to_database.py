@@ -7,11 +7,12 @@ from qdrant_client.models import (
 )
 
 # --- Configuration ---
-QDRANT_URL = "http://192.168.4.23:6333"
+QDRANT_URL = "http://localhost:6333"
 COLLECTION_NAME = "memories_collection"
 OLLAMA_MODEL = "qwen-embed-2k:latest"
-OLLAMA_URL = "http://192.168.4.23:11434/api/embeddings"
+OLLAMA_URL = "http://localhost/api/embeddings"
 qdrant = QdrantClient(url=QDRANT_URL)
+DIMENSIONS = 1024
 
 def get_dense_embedding(text):
     payload = {"model": OLLAMA_MODEL, "prompt": text}
@@ -30,7 +31,7 @@ print(f"Creating Collection '{COLLECTION_NAME}' with Dense and Sparse indexes...
 qdrant.create_collection(
     collection_name=COLLECTION_NAME,
     vectors_config={
-        "qwen_dense": VectorParams(size=1024, distance=Distance.COSINE),
+        "qwen_dense": VectorParams(size=DIMENSIONS, distance=Distance.COSINE),
     },
     sparse_vectors_config={
         "keyword_sparse": SparseVectorParams(modifier=Modifier.IDF),
