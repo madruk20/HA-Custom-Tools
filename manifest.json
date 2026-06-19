@@ -2,7 +2,7 @@
   "domain": "ai_tools",
   "name": "AI Custom Tools",
   "version": "1.0.0",
-  "documentation": "https://github.com/your-repo",
+  "documentation": "https://github.com/madruk20/HA-Custom-Tools/tree/main",
   "dependencies": ["conversation"],
   "requirements": [
     "qdrant-client==1.18.0",
