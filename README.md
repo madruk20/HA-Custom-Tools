@@ -1,4 +1,4 @@
-# Custom AI Agent for Home Assistant
+# Custom Conversation Agent for Home Assistant
 
 A customizable conversational AI agentfor Home Assistant. This integration focuses on local LLM orchestration, dynamic tool injection via Vector RAG, and fast semantic caching. 
 
