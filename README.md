@@ -27,7 +27,7 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 
 ### 2. Context & Parameters
 * **System Instructions:** The base system prompt.
-* **Dynamic Instructions:** Append dynamic elements such as the time and room location to the end of the prompt to optimize the cache.
+* **Dynamic Instructions:** Append dynamic elements such as the time and room location to the user prompt to optimize the cache.
 * **Generation Tweaks:** Sliders to adjust `temperature`, `top_p`, `num_predict`, and the total context window size (`num_ctx`).
 * **Keep Alive:** Configure how long the model stays loaded in VRAM after a request.
 
