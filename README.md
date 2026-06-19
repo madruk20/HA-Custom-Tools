@@ -42,7 +42,7 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 ### The Execution Pipeline
 When a user speaks to the agent, the request goes through a strict pipeline:
 
-1. **The Hash Check:** The user's query is hashed and checked against `semantic_cache.json`. If it's a routine command (e.g., "Turn off the lights"), the agent skips the vector database and immediately loads the known required tools.
+1. **The Hash Check:** The user's query is hashed and checked against the internal cache. If it's a routine command (e.g., "Turn off the lights"), the agent skips the vector database and immediately loads the known required tools.
 2. **The Vector Search (RAG):** If it's a new command, the query is embedded and sent to Qdrant. Qdrant performs a hybrid search (BM25 keyword + dense vector) across the `tools_collection` and `memories_collection`.
 3. **Prompt Assembly:** The system prompt is built dynamically. It injects the base instructions, filters the live Home Assistant device state based on the user's current room, and attaches the RAG-retrieved personal memories.
 4. **The LLM Loop:** The AI is given the prompt and the optimized list of tools. It can execute multiple tools in a loop (up to 5 default iterations, adjustable). 
