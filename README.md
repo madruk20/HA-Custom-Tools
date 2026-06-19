@@ -37,7 +37,7 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 * **Clear Semantic Cache:** A toggle to instantly wipe the saved RAM/disk cache if the AI learns a bad tool routine.
 * **Dynamic Device Control:** Expose devices based on specific rooms or just the room the request is made.
 
-### 4. Vector Database & Embeddings
+### 4. Memory Settings
 * **Enable Memory Injection:** Toggle to inject collection memories from the vector database.
 * **Qdrant Collections:** Select which collections you want to pull memories from.
 * **Memory Injection Limit:** How many memories to inject into the prompt.
