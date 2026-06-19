@@ -58,7 +58,7 @@ class CustomAIAgent(conversation.ConversationEntity):
         self.llm_url = self.entry.options.get("llm_url", "http://localhost:11434")
         self.llm_model = self.entry.options.get("llm_model", "qwen2.5:latest")
         self.llm_api_key = entry.options.get("llm_api_key", "")
-        self.max_iterations = 5 # Maxium tool calls before giving up
+        self.max_iterations = int(self.entry.options.get("max_tool_iterations", 5)) # Maxium tool calls before giving up
 
         # Embedding Models and Connection Settings
         self.embed_backend_type = self.entry.options.get("embed_backend_type", "None")
@@ -269,34 +269,62 @@ class CustomAIAgent(conversation.ConversationEntity):
                 })
 
         return active_tools, tool_schemas
+    
 
     def _build_system_prompt(self, device_id: str, personal_memories: str, ha_base_prompt: str) -> str:
-        """Assembles prompt mirroring HA's native organization."""
+        """Assembles prompt mirroring HA's native organization based on UI Injection Strategy."""
         location_name = "Unknown"
         active_area_name = ""
         
+        dev_reg = dr.async_get(self.hass)
+        area_reg = ar.async_get(self.hass)
+
+        # Always try to figure out where the user is physically located
         if device_id:
-            dev_reg = dr.async_get(self.hass)
-            area_reg = ar.async_get(self.hass)
             if device := dev_reg.async_get(device_id):
                 if device.area_id and (area := area_reg.async_get_area(device.area_id)):
                     location_name = area.name
                     active_area_name = area.name.lower().strip()
 
-        if active_area_name:
+        # Fetch the strategy from our Config Flow
+        strategy = self.entry.options.get("device_injection_strategy", "current_room")
+        allowed_area_names = []
+
+        if strategy == "current_room" and active_area_name:
+            allowed_area_names = [active_area_name]
             ha_base_prompt = ha_base_prompt.replace(
                 "Static Context: An overview of the areas and the devices in this smart home:",
                 f"Static Context: An overview of the areas and the devices in the {location_name}:"
             )
+            
+        elif strategy == "specific_rooms":
+            specific_room_ids = self.entry.options.get("injection_specific_rooms", [])
+            for a_id in specific_room_ids:
+                if area := area_reg.async_get_area(a_id):
+                    allowed_area_names.append(area.name.lower().strip())
+            
+            # Make the prompt header reflect that this is a curated list
+            ha_base_prompt = ha_base_prompt.replace(
+                "Static Context: An overview of the areas and the devices in this smart home:",
+                "Static Context: An overview of the devices in the requested rooms:"
+            )
+
+        # Apply the Regex filter ONLY if we are using a restrictive strategy and have target areas
+        if strategy in ["current_room", "specific_rooms"]:
             pattern = r'-\s+names:[^\n]+\n\s+domain:[^\n]+\n\s+areas:\s+([^\n]+)\n'
             def room_evaluator(match):
-                if match.group(1).lower().strip() != active_area_name: return ""
+                # If the device's area is not in our allowed list, wipe it from the prompt
+                if match.group(1).lower().strip() not in allowed_area_names: 
+                    return ""
                 return match.group(0)
             
-            ha_base_prompt = re.sub(pattern, room_evaluator, ha_base_prompt)
-            ha_base_prompt = re.sub(r'\n\s+areas:\s+[^\n]+', '', ha_base_prompt)
-            _LOGGER.debug(f"✂️ Applied Regex Room Filter for area: {active_area_name}")
+            # Only run the filter if there are actually areas to filter by
+            if allowed_area_names or strategy == "specific_rooms":
+                ha_base_prompt = re.sub(pattern, room_evaluator, ha_base_prompt)
+                ha_base_prompt = re.sub(r'\n\s+areas:\s+[^\n]+', '', ha_base_prompt)
+                _LOGGER.debug(f"✂️ Applied Regex Room Filter for areas: {allowed_area_names}")
 
+        # Assemble the final prompt
         static_prefix = self.entry.options.get(
             "Instructions", 
             "You are the conversational brain of a smart home..."
@@ -312,11 +340,13 @@ class CustomAIAgent(conversation.ConversationEntity):
         dynamic_suffix = (
             f"\n### TIME AND LOCATION CONTEXT\n"
             f"Physical Location: You are physically located in the {location_name}.\n"
-            f"If the user requests context or operations for an entity outside of the {location_name}, you MUST call `GetLiveContext` for that specific area first to discover it.\n"
+            f"If the user requests context or operations for an entity outside of the injected context, you MUST call `GetLiveContext` for that specific area first to discover it.\n"
             f"Current Context: Today is {now.strftime('%A')}, {day_str} and the current time is {now.strftime('%-I:%M %p')}.\n"
         )
 
-        if personal_memories: dynamic_suffix += f"\n### PERSONAL MEMORIES & FACTS\n{personal_memories}\n"
+        if personal_memories: 
+            dynamic_suffix += f"\n### PERSONAL MEMORIES & FACTS\n{personal_memories}\n"
+            
         return f"{static_prefix}{ha_context}{dynamic_suffix}"
 
     def _compress_tool_response(self, result, tool_name: str) -> str:
@@ -544,7 +574,7 @@ class CustomAIAgent(conversation.ConversationEntity):
             query_hash: str, 
             personal_memories: str
     ):
-        max_iterations = 5
+        max_iterations = self.max_iterations
         ollama_client = await self._get_ollama_client()
         
         # Track ONLY tools that execute successfully during this turn for caching

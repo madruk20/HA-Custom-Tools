@@ -9,7 +9,7 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.selector import NumberSelectorMode
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.util.ssl import get_default_context
+from homeassistant.helpers import area_registry as ar
 
 DOMAIN = "ai_tools"
 _LOGGER = logging.getLogger(__name__)
@@ -48,77 +48,42 @@ class AIToolsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
-        
         if user_input is None:
             return self.async_show_form(step_id="user")
-            
-        return self.async_create_entry(title="Custom AI", data={})
+        return self.async_create_entry(title="Custom AI Agent", data={})
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return AIToolsOptionsFlowHandler()
+        return AIToolsOptionsFlowHandler(config_entry)
 
 class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
-    def __init__(self) -> None:
-        """Initialize options flow."""
-        self._options = {}
+    def __init__(self, config_entry) -> None:
+        self._options = dict(config_entry.options)
 
     async def async_step_init(self, user_input=None):
-        options = self.config_entry.options
-        errors = {}
-        
-        # Get current backend type or default to local Ollama
-        llm_backend_type = user_input.get("llm_backend_type") if user_input else options.get("llm_backend_type", "local_ollama")
-        llm_url = user_input.get("llm_url") if user_input else options.get("llm_url", "http://192.168.4.23:11434")
-        llm_api_key = user_input.get("llm_api_key") if user_input else options.get("llm_api_key", "")
+        """The Main Dashboard Menu."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["provider_settings", "tuning_settings", "tool_settings", "memory_settings", "finish"]
+        )
 
-        # Embed backend settings (default to whatever the LLM is doing so it doesn't break existing setups)
-        embed_backend_type = user_input.get("embed_backend_type") if user_input else options.get("embed_backend_type", llm_backend_type)
-        embed_url = user_input.get("embed_url") if user_input else options.get("embed_url", llm_url)
-        embed_api_key = user_input.get("embed_api_key") if user_input else options.get("embed_api_key", llm_api_key)
-
-
-        # 1. Conditional Connection Validation
+    async def async_step_provider_settings(self, user_input=None):
+        """Step 1: Connection and Model Providers."""
         if user_input is not None:
-            # ONLY validate tags if they are actually trying to use a local Ollama instance
-            if llm_backend_type == "local_ollama":
-                try:
-                    session = async_get_clientsession(self.hass)
-                    headers = {"Authorization": f"Bearer {llm_api_key}"} if llm_api_key else {}
-                    ssl_context = get_default_context() if llm_url.startswith("https") else False
-                    
-                    async with session.get(f"{llm_url.rstrip('/')}/api/tags", headers=headers, ssl=ssl_context, timeout=5) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            available_models = [m["name"] for m in data.get("models", [])]
-                            if user_input.get("llm_model") not in available_models:
-                                errors["llm_model"] = "model_not_found"
-                        else:
-                            errors["base"] = "cannot_connect"
-                except Exception as e:
-                    _LOGGER.error(f"Ollama Validation failed: {e}")
-                    errors["base"] = "cannot_connect"
-            
-            if not errors:
-                # Save first page options to the class instance
-                self._options.update(user_input)
-                
-                # Check if user wants to open the secondary tool config window
-                if user_input.get("configure_tools"):
-                    return await self.async_step_tools()
-                    
-                # If they didn't check the box, finalize the entry immediately
-                # Ensure we carry over any existing blacklisted tools if they skip the menu
-                if "blacklisted_tools" not in self._options:
-                    self._options["blacklisted_tools"] = options.get("blacklisted_tools", [])
-                return self.async_create_entry(title="", data=self._options)
+            self._options.update(user_input)
+            return await self.async_step_init()
 
-        # 2. Populate Dropdown Lists dynamically based on current backend selection
+        options = self._options
+        llm_backend = options.get("llm_backend_type", "local_ollama")
+        llm_url = options.get("llm_url", "http://localhost:11434")
+        llm_api_key = options.get("llm_api_key", "")
+        
         llm_models = []
         embed_models = []
 
-        if llm_backend_type == "local_ollama":
+        # Dynamic Model Fetching
+        if llm_backend == "local_ollama":
             try:
                 session = async_get_clientsession(self.hass)
                 headers = {"Authorization": f"Bearer {llm_api_key}"} if llm_api_key else {}
@@ -136,297 +101,173 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
                                 llm_models.append(m["name"])
             except Exception as e:
                 _LOGGER.error(f"Could not refresh local Ollama list: {e}")
-            
             if not llm_models: llm_models = ["offline_fallback:latest"]
             embed_models.insert(0, "None")
         else:
-            # Fallback to standard cloud arrays if they selected OpenAI or a Generic Proxy
             llm_models = CLOUD_LLM_MODELS
             embed_models = CLOUD_EMBED_MODELS
 
         return self.async_show_form(
-            step_id="init",
+            step_id="provider_settings",
             data_schema=vol.Schema({
-                vol.Required("llm_backend_type", default=llm_backend_type): selector.SelectSelector(
+                vol.Required("llm_backend_type", default=llm_backend, description="Primary AI inference backend."): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
                             {"value": "local_ollama", "label": "Ollama (Local Server)"},
                             {"value": "openai_official", "label": "OpenAI (Official Cloud)"},
-                            {"value": "openai_compatible", "label": "OpenAI Compatible (Groq, OpenRouter, LM Studio)"}
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
+                            {"value": "openai_compatible", "label": "OpenAI Compatible"}
+                        ], mode=selector.SelectSelectorMode.DROPDOWN)
                 ),
-
-                vol.Required(
-                    "llm_url", 
-                    default=llm_url
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-
-                vol.Optional(
-                    "llm_api_key", 
-                    default=llm_api_key
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-
-                vol.Required(
-                    "llm_model", 
-                    default=user_input.get("llm_model") if user_input else options.get("llm_model", llm_models[0])
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=llm_models, 
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True
-                    )
+                vol.Required("llm_url", default=llm_url, description="Address of the LLM API."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+                vol.Optional("llm_api_key", default=llm_api_key, description="Required for Cloud or restricted local APIs."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+                vol.Required("llm_model", default=options.get("llm_model", llm_models[0]), description="The specific AI model to load."): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=llm_models, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
                 ),
-
-                vol.Required(
-                    "embed_backend_type", 
-                    default=embed_backend_type
-                ): selector.SelectSelector(
+                vol.Required("embed_backend_type", default=options.get("embed_backend_type", llm_backend), description="Backend used specifically for embeddings/RAG."): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"value": "none", "label": "None (Disable RAG / Vector Database)"},
+                            {"value": "none", "label": "None (Disable RAG)"},
                             {"value": "local_ollama", "label": "Ollama (Local Embeddings)"},
-                            {"value": "openai_official", "label": "OpenAI (Official Cloud Embeddings)"},
-                            {"value": "openai_compatible", "label": "OpenAI Compatible Embeddings"}
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
+                            {"value": "openai_official", "label": "OpenAI (Cloud Embeddings)"},
+                            {"value": "openai_compatible", "label": "OpenAI Compatible"}
+                        ], mode=selector.SelectSelectorMode.DROPDOWN)
                 ),
-
-                vol.Required(
-                    "embed_url", 
-                    default=embed_url
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-
-                vol.Optional(
-                    "embed_api_key", 
-                    default=embed_api_key
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-
-                vol.Required(
-                    "embedding_model", 
-                    default=user_input.get("embedding_model") if user_input else options.get("embedding_model", embed_models[0] if embed_models else "qwen-embed-2k:latest")
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=embed_models, 
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True
-                    )
+                vol.Required("embed_url", default=options.get("embed_url", llm_url), description="Address for the embedding API."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+                vol.Optional("embed_api_key", default=options.get("embed_api_key", llm_api_key), description="API Key for embeddings."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+                vol.Required("embedding_model", default=options.get("embedding_model", embed_models[0] if embed_models else "qwen-embed-2k:latest"), description="Model used for vectorizing text."): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=embed_models, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
                 ),
-
-                vol.Required("vector_db_backend", default="qdrant"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"value": "none", "label": "None (Disable RAG / Vector Database)"},
-                            {"value": "qdrant", "label": "Qdrant"},
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
+                vol.Required("vector_db_backend", default=options.get("vector_db_backend", "qdrant"), description="Vector Database software."): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=[{"value": "none", "label": "None"}, {"value": "qdrant", "label": "Qdrant"}], mode=selector.SelectSelectorMode.DROPDOWN)
                 ),
-
-                vol.Required(
-                    "vector_db_url", 
-                    default=options.get("vector_db_url", "http://localhost:6333")
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-
-                vol.Optional(
-                    "vector_db_api_key", 
-                    default=options.get("vector_db_api_key", "")
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-
-                vol.Optional(
-                    "Instructions", 
-                    default=options.get("Instructions", DEFAULT_SYSTEM_PROMPT)
-                ): selector.TemplateSelector(),
-                
-                vol.Optional(
-                    "thinking", 
-                    default=options.get("thinking", False)
-                ): selector.BooleanSelector(),
-                
-                vol.Optional(
-                    "temperature", 
-                    default=options.get("temperature", 0.5)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=1, step=0.1, mode=NumberSelectorMode.SLIDER)
-                ),
-
-                vol.Optional(
-                    "repeat_penalty", 
-                    default=options.get("repeat_penalty", 1.1)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=1.0, max=2.0, step=0.05, mode=NumberSelectorMode.SLIDER)
-                ),
-
-                vol.Optional(
-                    "top_p", 
-                    default=options.get("top_p", 0.9)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)
-                ),
-
-                vol.Optional(
-                    "top_k", 
-                    default=options.get("top_k", 40)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=1, max=100, mode=NumberSelectorMode.BOX)
-                ),
-
-                vol.Optional(
-                    "max_history", 
-                    default=options.get("max_history", 40)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=100, mode=NumberSelectorMode.BOX)
-                ),
-                
-                vol.Optional(
-                    "num_ctx", 
-                    default=options.get("num_ctx", 32768)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=2048, max=32768, mode=NumberSelectorMode.BOX)
-                ),
-
-                vol.Optional(
-                    "num_predict", 
-                    default=options.get("num_predict", 512)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=128, max=4096, mode=NumberSelectorMode.BOX)
-                ),
-
-                vol.Optional(
-                    "mirostat", 
-                    default=options.get("mirostat", "0")
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"value": "0", "label": "Disabled"},
-                            {"value": "1", "label": "Mirostat 1.0"},
-                            {"value": "2", "label": "Mirostat 2.0"}
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
-
-                vol.Optional(
-                    "keep_alive", 
-                    default=options.get("keep_alive", -1)
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-1, max=1440, mode=NumberSelectorMode.BOX)
-                ),
-
-                vol.Optional("configure_tools", default=False): selector.BooleanSelector(),
-            }),
-            errors=errors
+                vol.Required("vector_db_url", default=options.get("vector_db_url", "http://localhost:6333"), description="Address of the Vector DB."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+                vol.Optional("vector_db_api_key", default=options.get("vector_db_api_key", ""), description="Vector DB Auth Key."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+            })
         )
-    
 
-    async def async_step_tools(self, user_input=None):
-        """Second step to handle the tool blacklist."""
+    async def async_step_tuning_settings(self, user_input=None):
+        """Step 2: Prompts and Inference Sliders."""
         if user_input is not None:
-            # --- CLEAR CACHE LOGIC ---
+            self._options.update(user_input)
+            return await self.async_step_init()
+
+        options = self._options
+        return self.async_show_form(
+            step_id="tuning_settings",
+            data_schema=vol.Schema({
+                vol.Optional("Instructions", default=options.get("Instructions", DEFAULT_SYSTEM_PROMPT), description="The core System Prompt defining agent behavior."): selector.TemplateSelector(),
+                vol.Optional("thinking", default=options.get("thinking", False), description="Enable <think> tags for supported reasoning models."): selector.BooleanSelector(),
+                vol.Optional("temperature", default=options.get("temperature", 0.5), description="Creativity/Randomness of the response."): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1, step=0.1, mode=NumberSelectorMode.SLIDER)),
+                vol.Optional("top_p", default=options.get("top_p", 0.9), description="Nucleus sampling probability."): selector.NumberSelector(selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
+                vol.Optional("repeat_penalty", default=options.get("repeat_penalty", 1.1), description="Prevents the AI from repeating itself."): selector.NumberSelector(selector.NumberSelectorConfig(min=1.0, max=2.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
+                vol.Optional("top_k", default=options.get("top_k", 40), description="Limit token selection to top K choices."): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=100, mode=NumberSelectorMode.BOX)),
+                vol.Optional("max_history", default=options.get("max_history", 10), description="Max messages retained in session memory."): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, mode=NumberSelectorMode.BOX)),
+                vol.Optional("num_ctx", default=options.get("num_ctx", 8192), description="Maximum context window size."): selector.NumberSelector(selector.NumberSelectorConfig(min=2048, max=32768, mode=NumberSelectorMode.BOX)),
+                vol.Optional("num_predict", default=options.get("num_predict", 512), description="Max tokens to generate per response."): selector.NumberSelector(selector.NumberSelectorConfig(min=128, max=4096, mode=NumberSelectorMode.BOX)),
+                vol.Optional("mirostat", default=options.get("mirostat", "0"), description="Alternative to Temperature/Top P tuning."): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=[{"value": "0", "label": "Disabled"}, {"value": "1", "label": "Mirostat 1.0"}, {"value": "2", "label": "Mirostat 2.0"}], mode=selector.SelectSelectorMode.DROPDOWN)
+                ),
+                vol.Optional("keep_alive", default=options.get("keep_alive", -1), description="Time in minutes to keep model loaded in VRAM (-1 for infinite)."): selector.NumberSelector(selector.NumberSelectorConfig(min=-1, max=1440, mode=NumberSelectorMode.BOX)),
+            })
+        )
+
+    async def async_step_tool_settings(self, user_input=None):
+        """Handle tool blacklists, iterations, caching, and device injection strategies."""
+        config = self._options
+
+        if user_input is not None:
             if user_input.get("clear_cache_now"):
                 cache_path = Path(__file__).parent / "semantic_cache.json"
                 if cache_path.exists():
                     _LOGGER.info("🗑️ Clearing semantic cache via Config Flow...")
                     await self.hass.async_add_executor_job(os.remove, cache_path)
-                
-                # Reset the checkbox to False so it doesn't try to delete it every time you save settings
                 user_input["clear_cache_now"] = False
             
             self._options.update(user_input)
-            return self.async_create_entry(title="", data=self._options)
+            return await self.async_step_init()
         
+        # 1. Fetch Custom Tools
         def get_custom_tools() -> list[str]:
-            """Dynamically scan the tools directory for custom tool names."""
             tools_dir = Path(__file__).parent / "tools"
             found_tools = []
-
-            if not tools_dir.exists():
-                return found_tools
-
+            if not tools_dir.exists(): return found_tools
             for file_path in tools_dir.glob("*.py"):
-                if file_path.name == "__init__.py":
-                    continue
+                if file_path.name == "__init__.py": continue
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
                         for line in f:
                             line = line.strip()
-                            # Search for the class attribute `name = "tool_name"`
                             if line.startswith("name =") or line.startswith("name="):
                                 match = re.search(r'["\']([^"\']+)["\']', line)
                                 if match:
                                     found_tools.append(match.group(1))
-                                    break # Found the tool name, move to next file
-                except Exception:
-                    pass
-                    
+                                    break 
+                except Exception: pass
             return found_tools
 
-        # Current States
-        options = self.config_entry.options
-        current_blacklist = options.get("blacklisted_tools", [])
-        current_limit = options.get("tool_injection_limit", 3)
-        current_threshold = options.get("tool_cosine_threshold", 0.30)
-
-        current_memory_enabled = options.get("enable_memory_injection", True)
-        current_mem_limit = options.get("memory_injection_limit", 3)
-        current_mem_threshold = options.get("memory_cosine_threshold", 0.50)
-        current_collections = options.get("memory_collections", ["memories_collection"])
-
-        # Create dropdown options for Tools
-        native_options = [{"value": tool, "label": f"{tool} (Native)"} for tool in ALL_NATIVE_HA_TOOLS]
         custom_tools = await self.hass.async_add_executor_job(get_custom_tools)
-        custom_options = [{"value": tool, "label": f"{tool} (Custom)"} for tool in custom_tools]
-        all_options = native_options + custom_options
+        all_tools_options = [{"value": t, "label": f"{t} (Native)"} for t in ALL_NATIVE_HA_TOOLS] + [{"value": t, "label": f"{t} (Custom)"} for t in custom_tools]
 
-        # Create dynamically populated chips for Memory Collections
+        # 2. Fetch Home Assistant Areas/Rooms dynamically
+        area_reg = ar.async_get(self.hass)
+        ha_areas = area_reg.async_list_areas()
+        area_options = [{"value": area.id, "label": area.name} for area in ha_areas]
+
+        return self.async_show_form(
+            step_id="tool_settings",
+            data_schema=vol.Schema({
+                vol.Optional("max_tool_iterations", default=config.get("max_tool_iterations", 5)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=1, max=15, step=1, mode=NumberSelectorMode.BOX)
+                ),
+                vol.Required("device_injection_strategy", default=config.get("device_injection_strategy", "current_room")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": "all", "label": "Entire Home (All Exposed Devices)"},
+                            {"value": "current_room", "label": "Dynamic (Current Room Only)"},
+                            {"value": "specific_rooms", "label": "Static (Only Select Rooms)"}
+                        ], mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("injection_specific_rooms", default=config.get("injection_specific_rooms", [])): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=area_options, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN)
+                ),
+                vol.Optional("blacklisted_tools", default=config.get("blacklisted_tools", [])): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=all_tools_options, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                ),
+                vol.Optional("tool_injection_limit", default=config.get("tool_injection_limit", 3)): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=25, mode=NumberSelectorMode.BOX)),
+                vol.Optional("tool_cosine_threshold", default=config.get("tool_cosine_threshold", 0.30)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
+                vol.Optional("clear_cache_now", default=False): selector.BooleanSelector()
+            })
+        )
+
+    async def async_step_memory_settings(self, user_input=None):
+        """Step 4: Fact and Memory Injection."""
+        if user_input is not None:
+            self._options.update(user_input)
+            return await self.async_step_init()
+
+        options = self._options
+        current_collections = options.get("memory_collections", ["memories_collection"])
         memory_options = [{"value": c, "label": c} for c in current_collections]
-        # Ensure the default is always visibly selectable even if the list is cleared
         if not any(opt["value"] == "memories_collection" for opt in memory_options):
             memory_options.append({"value": "memories_collection", "label": "memories_collection"})
 
         return self.async_show_form(
-            step_id="tools",
+            step_id="memory_settings",
             data_schema=vol.Schema({
-                vol.Optional("blacklisted_tools", default=current_blacklist): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=all_options,
-                        multiple=True, 
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True 
-                    )
+                vol.Optional("enable_memory_injection", default=options.get("enable_memory_injection", False), description="Enable dynamic fact and memory retrieval."): selector.BooleanSelector(),
+                vol.Optional("memory_collections", default=current_collections, description="Qdrant collections to search for personal memories."): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=memory_options, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
                 ),
-                vol.Optional("tool_injection_limit", default=current_limit): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=1,
-                        max=25,
-                        mode=NumberSelectorMode.BOX
-                    )
-                ),
-                vol.Optional("tool_cosine_threshold", default=current_threshold): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0,
-                        max=1.0,
-                        step=0.05,
-                        mode=NumberSelectorMode.SLIDER or NumberSelectorMode.BOX
-                    )
-                ),
-                vol.Optional("enable_memory_injection", default=current_memory_enabled): selector.BooleanSelector(),
-                vol.Optional("memory_collections", default=current_collections): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=memory_options,
-                        multiple=True, 
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True
-                    )
-                ),
-                vol.Optional("memory_injection_limit", default=current_mem_limit): selector.NumberSelector(
+                vol.Optional("memory_injection_limit", default=options.get("memory_injection_limit", 3), description="Max facts to inject per turn."): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=50, mode=NumberSelectorMode.BOX)
                 ),
-                vol.Optional("memory_cosine_threshold", default=current_mem_threshold): selector.NumberSelector(
+                vol.Optional("memory_cosine_threshold", default=options.get("memory_cosine_threshold", 0.50), description="Sensitivity for memory semantic search match."): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)
                 ),
-                vol.Optional("clear_cache_now", default=False): selector.BooleanSelector()
             })
         )
+
+    async def async_step_finish(self, user_input=None):
+        """Finalize and Save."""
+        return self.async_create_entry(title="Custom AI Options", data=self._options)
