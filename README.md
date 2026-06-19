@@ -1,8 +1,6 @@
 # Custom AI Agent for Home Assistant
 
-A highly advanced, completely customizable conversational brain for Home Assistant. Built from the ground up for power users, this integration focuses on local LLM orchestration, dynamic tool injection via Vector RAG, and lightning-fast semantic caching. 
-
-Whether you are routing requests through a local proxy or running a heavy multi-GPU Unraid server with an i9-12900K crunching local inference, this agent is designed to keep latency low, context windows clean, and your smart home fully autonomous.
+A customizable conversational AI agentfor Home Assistant. This integration focuses on local LLM orchestration, dynamic tool injection via Vector RAG, and fast semantic caching. 
 
 ## ✨ Core Features
 
@@ -21,10 +19,10 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 ### 1. LLM Endpoint & Models
 * **Backend Type:** Choose between local Ollama or an OpenAI-compatible proxy (note: using the compatible proxy setting allows you to use standard API formats locally without relying on external cloud services).
 * **URL & API Key:** Point this to your inference server.
-* **Model Selection:** Dynamically fetches and lists the active models currently loaded on your server.
+* **Model Selection:** Dynamically fetches and lists the active models currently loaded on your server (ollama only).
 
 ### 2. Context & Parameters
-* **System Instructions:** The absolute base prompt. (e.g., Defining the physical location like Pacific Palisades, and enforcing strict plain-text verbal responses).
+* **System Instructions:** The base prompt.
 * **Generation Tweaks:** Sliders to adjust `temperature`, `top_p`, `num_predict`, and the total context window size (`num_ctx`).
 * **Keep Alive:** Configure how long the model stays loaded in VRAM after a request.
 
@@ -42,15 +40,14 @@ The configuration is split into an easy-to-navigate menu within Home Assistant's
 ## 🧠 How the Code Works (Architecture)
 
 ### The Execution Pipeline
-When a user speaks to the agent, the request goes through a strict pipeline inside `agent.py`:
+When a user speaks to the agent, the request goes through a strict pipeline:
 
 1. **The Hash Check:** The user's query is hashed and checked against `semantic_cache.json`. If it's a routine command (e.g., "Turn off the lights"), the agent skips the vector database and immediately loads the known required tools.
 2. **The Vector Search (RAG):** If it's a new command, the query is embedded and sent to Qdrant. Qdrant performs a hybrid search (BM25 keyword + dense vector) across the `tools_collection` and `memories_collection`.
 3. **Prompt Assembly:** The system prompt is built dynamically. It injects the base instructions, filters the live Home Assistant device state based on the user's current room, and attaches the RAG-retrieved personal memories.
-4. **The LLM Loop:** The AI is given the prompt and the optimized list of tools. It can execute multiple tools in a loop (up to 5 iterations). 
-5. **Tool Compression:** Native Home Assistant tool responses are notoriously verbose. The custom `_compress_tool_response` function strips out the junk data and passes clean, minimal JSON back to the LLM to save tokens and prevent local models from getting confused.
+4. **The LLM Loop:** The AI is given the prompt and the optimized list of tools. It can execute multiple tools in a loop (up to 5 default iterations, adjustable). 
+5. **Tool Compression:** Native Home Assistant tool responses are notoriously verbose. The code strips out the junk data and passes clean, minimal JSON back to the LLM to save tokens and prevent local models from getting confused.
 6. **Streaming:** The final response is streamed back to the UI or voice satellite in real-time.
 
 ### Dynamic Overrides
-In `__init__.py`, the integration aggressively patches Home Assistant's core prompt mechanisms. It blanks out HA's native system prompts (`DEFAULT_INSTRUCTIONS_PROMPT = ""`) so that the agent has 100% complete control over the context window, ensuring local models aren't distracted by boilerplate text.
-Collection of Custom Tools for Home Assistant
+The integration aggressively patches Home Assistant's core prompt mechanisms. It blanks out HA's native system prompts (e.g. `DEFAULT_INSTRUCTIONS_PROMPT = ""`) so that the agent has 100% complete control over the context window, ensuring local models aren't distracted by boilerplate text.
