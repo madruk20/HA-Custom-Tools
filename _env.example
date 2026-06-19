@@ -1,0 +1,8 @@
+# Custom AI Tools Environment Variables
+
+# LOCAL
+HOME_ZIP_CODE=
+
+# WEB SEARCH
+BRAVE_API_KEY=
+BEST_BUY_API_KEY=
