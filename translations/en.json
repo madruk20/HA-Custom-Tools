@@ -61,7 +61,7 @@
         },
         "data_description": {
           "Instructions": "The core personality and strict operational rules for the AI. This overrides standard Home Assistant prompts.",
-          "dynamic_suffix": "Appended to the very end of the prompt to maximize cache efficiency. You can use these live placeholders: '{location_name}', '{day_of_week}', '{date_str}', '{current_time}'.",
+          "dynamic_suffix": "Appended to the user prompt to maximize cache efficiency. Use this for dynamic elements in your prompts. You can use these live placeholders: '{location_name}', '{day_of_week}', '{date_str}', '{current_time}'.",
           "thinking": "Allows reasoning models to output hidden thinking tokens (like [think] blocks) before answering. Disable for standard models.",
           "temperature": "Higher values make output more creative, lower values make it more focused and deterministic.",
           "top_p": "Limits word choice to a percentage of the most probable options. Lower values increase focus.",
