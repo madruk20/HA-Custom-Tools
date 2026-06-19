@@ -49,5 +49,7 @@ When a user speaks to the agent, the request goes through a strict pipeline:
 5. **Tool Compression:** Native Home Assistant tool responses are notoriously verbose. The code strips out the junk data and passes clean, minimal JSON back to the LLM to save tokens and prevent local models from getting confused.
 6. **Streaming:** The final response is streamed back to the UI or voice satellite in real-time.
 
+---
+
 ### Dynamic Overrides
 The integration aggressively patches Home Assistant's core prompt mechanisms. It blanks out HA's native system prompts (e.g. `DEFAULT_INSTRUCTIONS_PROMPT = ""`) so that the agent has 100% complete control over the context window, ensuring local models aren't distracted by boilerplate text.
