@@ -8,14 +8,15 @@ from qdrant_client.http.models import (
 )
 
 # --- Configuration ---
-QDRANT_URL = "http://192.168.4.23:6333"
-OLLAMA_URL = "http://192.168.4.23:11434/api/embeddings"
+QDRANT_URL = "http://localhost:6333"
+OLLAMA_URL = "http://localhost:11434/api/embeddings"
 OLLAMA_MODEL = "qwen-embed-2k:latest"
 COLLECTION_NAME = "tools_collection"
+DIMENSIONS = 1024
 
 qdrant = QdrantClient(url=QDRANT_URL)
 
-# Rebuild the collection for Hybrid Search
+# Build the collection for Hybrid Search
 if qdrant.collection_exists(collection_name=COLLECTION_NAME):
     print(f"Deleting old collection to resize for Hybrid Search...")
     qdrant.delete_collection(collection_name=COLLECTION_NAME)
@@ -23,7 +24,7 @@ if qdrant.collection_exists(collection_name=COLLECTION_NAME):
 qdrant.create_collection(
     collection_name=COLLECTION_NAME,
     vectors_config={
-        "qwen_dense": VectorParams(size=1024, distance=Distance.COSINE),
+        "qwen_dense": VectorParams(size=DIMENSIONS, distance=Distance.COSINE),
     },
     sparse_vectors_config={
         "keyword_sparse": SparseVectorParams(modifier=Modifier.IDF),
@@ -41,7 +42,7 @@ def get_consistent_id(name):
 
 print("Hybrid Collection created successfully.")
 
-# --- MASTER TOOL LIST ---
+# --- MASTER TOOL LIST (Delete any tools you don't want uploaded) ---
 tools_to_add = [
     {
         "name": "HassTurnOn",
