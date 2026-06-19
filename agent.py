@@ -27,10 +27,10 @@ from homeassistant.helpers import llm
 import homeassistant.util.dt as dt_util
 from homeassistant.util.ssl import get_default_context
 
+from .const import DOMAIN, TOOL_BUNDLES
+
 
 _LOGGER = logging.getLogger(__name__)
-
-DOMAIN = "ai_tools"
 
 class CustomAIAgent(conversation.ConversationEntity):
     """Custom Conversation Agent mirroring HA's Native Prompt Organization."""
@@ -234,6 +234,7 @@ class CustomAIAgent(conversation.ConversationEntity):
 
         return {}, ""
 
+
     def _assemble_and_filter_tools(self, ha_api_instance, unlocked_tool_names):
         master_dict = {}
         for ha_tool in ha_api_instance.tools:
@@ -248,12 +249,16 @@ class CustomAIAgent(conversation.ConversationEntity):
 
         # Process bundles only if we are actually filtering tools (Qdrant is active)
         if unlocked_tool_names is not None:
-            music_bundle = ["music_player", "MusicPause", "MusicNext", "MusicPrevious"]
-            if any(tool in unlocked_tool_names for tool in music_bundle):
-                for mt in music_bundle:
-                    if mt not in unlocked_tool_names:
-                        unlocked_tool_names.append(mt)
-                        _LOGGER.debug(f"🔗 [BUNDLE] Auto-unlocked music cluster tool: {mt}")
+            
+            # Define tool clusters - If any one tool is triggered, the whole cluster unlocks
+            bundles = TOOL_BUNDLES
+            
+            for bundle in bundles:
+                if any(tool in unlocked_tool_names for tool in bundle):
+                    for tool_name in bundle:
+                        if tool_name not in unlocked_tool_names:
+                            unlocked_tool_names.append(tool_name)
+                            _LOGGER.debug(f"🔗 [BUNDLE] Auto-unlocked cluster tool: {tool_name}")
 
         active_tools = {}
         tool_schemas = []
