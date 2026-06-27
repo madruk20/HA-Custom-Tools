@@ -66,7 +66,7 @@
           "dynamic_suffix": "Appended to the user prompt to maximize cache efficiency. Use this for dynamic elements in your prompts. You can use these live placeholders: '{location_name}', '{day_of_week}', '{date_str}', '{current_time}'.",
           "thinking": "Allows reasoning models to output hidden thinking tokens (like [think] blocks) before answering. Disable for standard models.",
           "enable_streaming": "Streams response audio as soon as the first token is received.",
-          "enable_parallel_tools": "Excecutes tools in parallel for models that support it.  Tool calls targetting the same device are still sequintial.",
+          "enable_parallel_tools": "Excecutes tools in parallel for models that support it.  Tool calls targeting the same device are still sequintial.",
           "temperature": "Higher values make output more creative, lower values make it more focused and deterministic.",
           "top_p": "Limits word choice to a percentage of the most probable options. Lower values increase focus.",
           "top_k": "Limits the AI to choosing from only the top K most likely next words.",
