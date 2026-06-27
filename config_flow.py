@@ -142,6 +142,8 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional("Instructions", default=options.get("Instructions", DEFAULT_SYSTEM_PROMPT), description="The core System Prompt defining agent behavior."): selector.TemplateSelector(),
                 vol.Optional("dynamic_suffix", default=options.get("dynamic_suffix", DEFAULT_DYNAMIC_SUFFIX)): selector.TemplateSelector(),
                 vol.Optional("thinking", default=options.get("thinking", False), description="Enable <think> tags for supported reasoning models."): selector.BooleanSelector(),
+                vol.Optional("enable_streaming", default=options.get("enable_streaming", True), description="Enable text streaming (Disable for incompatible models)"): selector.BooleanSelector(),
+                vol.Optional("enable_parallel_tools", default=options.get("enable_parallel_tools", True), description="Enable parallel tool execution"): selector.BooleanSelector(),
                 vol.Optional("temperature", default=options.get("temperature", 0.5), description="Creativity/Randomness of the response."): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1, step=0.1, mode=NumberSelectorMode.SLIDER)),
                 vol.Optional("top_p", default=options.get("top_p", 0.9), description="Nucleus sampling probability."): selector.NumberSelector(selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
                 vol.Optional("repeat_penalty", default=options.get("repeat_penalty", 1.1), description="Prevents the AI from repeating itself."): selector.NumberSelector(selector.NumberSelectorConfig(min=1.0, max=2.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
