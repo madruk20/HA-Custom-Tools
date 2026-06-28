@@ -94,7 +94,10 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="provider_settings",
             data_schema=vol.Schema({
-                vol.Required("llm_backend_type", default=llm_backend, description="Primary AI inference backend."): selector.SelectSelector(
+                vol.Required(
+                    "llm_backend_type", 
+                    default=llm_backend, 
+                    description="Primary AI inference backend."): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
                             {"value": "local_ollama", "label": "Ollama (Local Server)"},
@@ -102,30 +105,102 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
                             {"value": "openai_compatible", "label": "OpenAI Compatible"}
                         ], mode=selector.SelectSelectorMode.DROPDOWN)
                 ),
-                vol.Required("llm_url", default=llm_url, description="Address of the LLM API."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-                vol.Optional("llm_api_key", default=llm_api_key, description="Required for Cloud or restricted local APIs."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-                vol.Required("llm_model", default=options.get("llm_model", llm_models[0]), description="The specific AI model to load."): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=llm_models, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
-                ),
-                vol.Required("embed_backend_type", default=options.get("embed_backend_type", llm_backend), description="Backend used specifically for embeddings/RAG."): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"value": "none", "label": "None (Disable RAG)"},
-                            {"value": "local_ollama", "label": "Ollama (Local Embeddings)"},
-                            {"value": "openai_official", "label": "OpenAI (Cloud Embeddings)"},
-                            {"value": "openai_compatible", "label": "OpenAI Compatible"}
-                        ], mode=selector.SelectSelectorMode.DROPDOWN)
-                ),
-                vol.Required("embed_url", default=options.get("embed_url", llm_url), description="Address for the embedding API."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-                vol.Optional("embed_api_key", default=options.get("embed_api_key", llm_api_key), description="API Key for embeddings."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-                vol.Required("embedding_model", default=options.get("embedding_model", embed_models[0] if embed_models else "qwen-embed-2k:latest"), description="Model used for vectorizing text."): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=embed_models, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
-                ),
-                vol.Required("vector_db_backend", default=options.get("vector_db_backend", "qdrant"), description="Vector Database software."): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=[{"value": "none", "label": "None"}, {"value": "qdrant", "label": "Qdrant"}], mode=selector.SelectSelectorMode.DROPDOWN)
-                ),
-                vol.Required("vector_db_url", default=options.get("vector_db_url", "http://localhost:6333"), description="Address of the Vector DB."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-                vol.Optional("vector_db_api_key", default=options.get("vector_db_api_key", ""), description="Vector DB Auth Key."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+                vol.Required(
+                    "llm_url", 
+                    default=llm_url, 
+                    description="Address of the LLM API."
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.URL
+                        )
+                    ),
+                vol.Optional(
+                    "llm_api_key", 
+                    default=llm_api_key, 
+                    description="Required for Cloud or restricted local APIs."
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD
+                        )
+                    ),
+                vol.Required(
+                    "llm_model", 
+                    default=options.get("llm_model", llm_models[0]), 
+                    description="The specific AI model to load."
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=llm_models, 
+                            mode=selector.SelectSelectorMode.DROPDOWN, 
+                            custom_value=True
+                        )
+                    ),
+                vol.Required(
+                    "embed_backend_type", 
+                    default=options.get("embed_backend_type", llm_backend), 
+                    description="Backend used specifically for embeddings/RAG."
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"value": "none", "label": "None (Disable RAG)"},
+                                {"value": "local_ollama", "label": "Ollama (Local Embeddings)"},
+                                {"value": "openai_official", "label": "OpenAI (Cloud Embeddings)"},
+                                {"value": "openai_compatible", "label": "OpenAI Compatible"}
+                            ], mode=selector.SelectSelectorMode.DROPDOWN
+                        )
+                    ),
+                vol.Required(
+                    "embed_url", 
+                    default=options.get("embed_url", llm_url), 
+                    description="Address for the embedding API."
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.URL
+                        )
+                    ),
+                vol.Optional(
+                    "embed_api_key", 
+                    default=options.get("embed_api_key", llm_api_key), 
+                    description="API Key for embeddings."
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD
+                        )
+                    ),
+                vol.Required(
+                    "embedding_model", 
+                    default=options.get("embedding_model", embed_models[0] if embed_models else "qwen-embed-2k:latest"), 
+                    description="Model used for vectorizing text."
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=embed_models, 
+                            mode=selector.SelectSelectorMode.DROPDOWN, 
+                            custom_value=True
+                        )
+                    ),
+                vol.Required(
+                    "vector_db_backend", 
+                    default=options.get("vector_db_backend", "qdrant"), 
+                    description="Vector Database software."
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[{"value": "none", "label": "None"}, 
+                                     {"value": "qdrant", "label": "Qdrant"}], 
+                                     mode=selector.SelectSelectorMode.DROPDOWN
+                        )
+                    ),
+                vol.Required(
+                    "vector_db_url", 
+                    default=options.get("vector_db_url", "http://localhost:6333"), 
+                    description="Address of the Vector DB."): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+                vol.Optional(
+                    "vector_db_api_key", 
+                    default=options.get("vector_db_api_key", ""), 
+                    description="Vector DB Auth Key."
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD
+                        )
+                    )
             })
         )
 
@@ -139,22 +214,131 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="tuning_settings",
             data_schema=vol.Schema({
-                vol.Optional("Instructions", default=options.get("Instructions", DEFAULT_SYSTEM_PROMPT), description="The core System Prompt defining agent behavior."): selector.TemplateSelector(),
-                vol.Optional("dynamic_suffix", default=options.get("dynamic_suffix", DEFAULT_DYNAMIC_SUFFIX)): selector.TemplateSelector(),
-                vol.Optional("thinking", default=options.get("thinking", False), description="Enable <think> tags for supported reasoning models."): selector.BooleanSelector(),
-                vol.Optional("enable_streaming", default=options.get("enable_streaming", True), description="Enable text streaming (Disable for incompatible models)"): selector.BooleanSelector(),
-                vol.Optional("enable_parallel_tools", default=options.get("enable_parallel_tools", True), description="Enable parallel tool execution"): selector.BooleanSelector(),
-                vol.Optional("temperature", default=options.get("temperature", 0.5), description="Creativity/Randomness of the response."): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1, step=0.1, mode=NumberSelectorMode.SLIDER)),
-                vol.Optional("top_p", default=options.get("top_p", 0.9), description="Nucleus sampling probability."): selector.NumberSelector(selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
-                vol.Optional("repeat_penalty", default=options.get("repeat_penalty", 1.1), description="Prevents the AI from repeating itself."): selector.NumberSelector(selector.NumberSelectorConfig(min=1.0, max=2.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
-                vol.Optional("top_k", default=options.get("top_k", 40), description="Limit token selection to top K choices."): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=100, mode=NumberSelectorMode.BOX)),
-                vol.Optional("max_history", default=options.get("max_history", 10), description="Max messages retained in session memory."): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, mode=NumberSelectorMode.BOX)),
-                vol.Optional("num_ctx", default=options.get("num_ctx", 8192), description="Maximum context window size."): selector.NumberSelector(selector.NumberSelectorConfig(min=2048, max=32768, mode=NumberSelectorMode.BOX)),
-                vol.Optional("num_predict", default=options.get("num_predict", 512), description="Max tokens to generate per response."): selector.NumberSelector(selector.NumberSelectorConfig(min=128, max=4096, mode=NumberSelectorMode.BOX)),
-                vol.Optional("mirostat", default=options.get("mirostat", "0"), description="Alternative to Temperature/Top P tuning."): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=[{"value": "0", "label": "Disabled"}, {"value": "1", "label": "Mirostat 1.0"}, {"value": "2", "label": "Mirostat 2.0"}], mode=selector.SelectSelectorMode.DROPDOWN)
+                vol.Optional(
+                    "Instructions", 
+                    default=options.get("Instructions", DEFAULT_SYSTEM_PROMPT), 
+                    description="The core System Prompt defining agent behavior."
+                    ): selector.TemplateSelector(),
+                vol.Optional(
+                    "dynamic_suffix", 
+                    default=options.get("dynamic_suffix", DEFAULT_DYNAMIC_SUFFIX)
+                    ): selector.TemplateSelector(),
+                vol.Optional(
+                    "thinking", 
+                    default=options.get("thinking", False), 
+                    description="Enable <think> tags for supported reasoning models."
+                    ): selector.BooleanSelector(),
+                vol.Optional(
+                    "enable_streaming", 
+                    default=options.get("enable_streaming", True), 
+                    description="Enable text streaming (Disable for incompatible models)"
+                    ): selector.BooleanSelector(),
+                vol.Optional(
+                    "enable_parallel_tools", 
+                    default=options.get("enable_parallel_tools", True), 
+                    description="Enable parallel tool execution"
+                    ): selector.BooleanSelector(),
+                vol.Optional(
+                    "draft_num_predict", 
+                    default=options.get("draft_num_predict", 2), 
+                    description="Number of speculative tokens to draft. Set to 0 to disable MTP."
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, 
+                        max=6, 
+                        step=1, 
+                        mode=NumberSelectorMode.SLIDER
+                    )
+                ),   
+                vol.Optional(
+                    "temperature", 
+                    default=options.get("temperature", 0.5), 
+                    description="Creativity/Randomness of the response."
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, 
+                        max=1, 
+                        step=0.1, 
+                        mode=NumberSelectorMode.SLIDER
+                    )
+                ), 
+                vol.Optional(
+                    "top_p", default=options.get("top_p", 0.9), 
+                    description="Nucleus sampling probability."
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.0, 
+                        max=1.0, 
+                        step=0.05, 
+                        mode=NumberSelectorMode.SLIDER
+                    )
                 ),
-                vol.Optional("keep_alive", default=options.get("keep_alive", -1), description="Time in minutes to keep model loaded in VRAM (-1 for infinite)."): selector.NumberSelector(selector.NumberSelectorConfig(min=-1, max=1440, mode=NumberSelectorMode.BOX)),
+                vol.Optional(
+                    "repeat_penalty", 
+                    default=options.get("repeat_penalty", 1.1), 
+                    description="Prevents the AI from repeating itself."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1.0, 
+                            max=2.0, 
+                            step=0.05, 
+                            mode=NumberSelectorMode.SLIDER
+                        )
+                ),
+                vol.Optional(
+                    "top_k", default=options.get("top_k", 40), 
+                    description="Limit token selection to top K choices."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1, 
+                            max=100, 
+                            mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                vol.Optional(
+                    "max_history", 
+                    default=options.get("max_history", 10), 
+                    description="Max messages retained in session memory."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, 
+                            max=100, 
+                            mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                vol.Optional(
+                    "num_ctx", 
+                    default=options.get("num_ctx", 8192), 
+                    description="Maximum context window size."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=2048, 
+                            max=32768, 
+                            mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                vol.Optional(
+                    "num_predict", 
+                    default=options.get("num_predict", 512), 
+                    description="Max tokens to generate per response."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=128, 
+                            max=4096, 
+                            mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                vol.Optional(
+                    "keep_alive", 
+                    default=options.get("keep_alive", -1), 
+                    description="Time in minutes to keep model loaded in VRAM (-1 for infinite)."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=-1, 
+                            max=1440, 
+                            mode=NumberSelectorMode.BOX
+                        )
+                    )
             })
         )
 
@@ -203,8 +387,16 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="tool_settings",
             data_schema=vol.Schema({
-                vol.Optional("max_tool_iterations", default=config.get("max_tool_iterations", 5)): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=1, max=15, step=1, mode=NumberSelectorMode.BOX)
+                vol.Optional(
+                    "max_tool_iterations", 
+                    default=config.get("max_tool_iterations", 5)
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1, 
+                            max=15, 
+                            step=1, 
+                            mode=NumberSelectorMode.BOX
+                        )
                 ),
                 vol.Required("device_injection_strategy", default=config.get("device_injection_strategy", "current_room")): selector.SelectSelector(
                     selector.SelectSelectorConfig(
@@ -215,15 +407,52 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
                         ], mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
-                vol.Optional("injection_specific_rooms", default=config.get("injection_specific_rooms", [])): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=area_options, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN)
+                vol.Optional(
+                    "injection_specific_rooms", 
+                    default=config.get("injection_specific_rooms", [])
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=area_options, 
+                            multiple=True, 
+                            mode=selector.SelectSelectorMode.DROPDOWN
+                        )
                 ),
-                vol.Optional("blacklisted_tools", default=config.get("blacklisted_tools", [])): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=all_tools_options, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                vol.Optional(
+                    "blacklisted_tools", 
+                    default=config.get("blacklisted_tools", [])
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=all_tools_options, 
+                            multiple=True, 
+                            mode=selector.SelectSelectorMode.DROPDOWN, 
+                            custom_value=True
+                        )
                 ),
-                vol.Optional("tool_injection_limit", default=config.get("tool_injection_limit", 3)): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=25, mode=NumberSelectorMode.BOX)),
-                vol.Optional("tool_cosine_threshold", default=config.get("tool_cosine_threshold", 0.30)): selector.NumberSelector(selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)),
-                vol.Optional("clear_cache_now", default=False): selector.BooleanSelector()
+                vol.Optional(
+                    "tool_injection_limit", 
+                    default=config.get("tool_injection_limit", 3)
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1, 
+                            max=25, 
+                            mode=NumberSelectorMode.BOX
+                        )
+                ),
+                vol.Optional(
+                    "tool_cosine_threshold", 
+                    default=config.get("tool_cosine_threshold", 0.30)
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0.0, 
+                            max=1.0, 
+                            step=0.05, 
+                            mode=NumberSelectorMode.SLIDER
+                        )
+                ),
+                vol.Optional(
+                    "clear_cache_now", 
+                    default=False
+                    ): selector.BooleanSelector()
             })
         )
 
@@ -242,15 +471,45 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="memory_settings",
             data_schema=vol.Schema({
-                vol.Optional("enable_memory_injection", default=options.get("enable_memory_injection", False), description="Enable dynamic fact and memory retrieval."): selector.BooleanSelector(),
-                vol.Optional("memory_collections", default=current_collections, description="Qdrant collections to search for personal memories."): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=memory_options, multiple=True, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                vol.Optional(
+                    "enable_memory_injection", 
+                    default=options.get("enable_memory_injection", False), 
+                    description="Enable dynamic fact and memory retrieval."
+                    ): selector.BooleanSelector(),
+                vol.Optional(
+                    "memory_collections", 
+                    default=current_collections, 
+                    description="Qdrant collections to search for personal memories."
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=memory_options, 
+                            multiple=True, 
+                            mode=selector.SelectSelectorMode.DROPDOWN, 
+                            custom_value=True
+                        )
                 ),
-                vol.Optional("memory_injection_limit", default=options.get("memory_injection_limit", 3), description="Max facts to inject per turn."): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=50, mode=NumberSelectorMode.BOX)
+                vol.Optional(
+                    "memory_injection_limit", 
+                    default=options.get("memory_injection_limit", 3),
+                    description="Max facts to inject per turn."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0,
+                            max=50, 
+                            mode=NumberSelectorMode.BOX
+                        )
                 ),
-                vol.Optional("memory_cosine_threshold", default=options.get("memory_cosine_threshold", 0.50), description="Sensitivity for memory semantic search match."): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.05, mode=NumberSelectorMode.SLIDER)
+                vol.Optional(
+                    "memory_cosine_threshold", 
+                    default=options.get("memory_cosine_threshold", 0.50), 
+                    description="Sensitivity for memory semantic search match."
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0.0, 
+                            max=1.0, 
+                            step=0.05, 
+                            mode=NumberSelectorMode.SLIDER
+                        )
                 ),
             })
         )

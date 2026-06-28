@@ -456,6 +456,17 @@ class CustomAIAgent(conversation.ConversationEntity):
         return text.strip()
 
 
+    def _clean_chunk(self, text: str) -> str:
+        """Safely strips markdown and emojis from a partial stream chunk without losing spaces."""
+        if not text:
+            return ""
+        # Strip bold, italic, headers, code blocks
+        text = re.sub(r'[*#`]', '', text)
+        # Strip emojis (keep letters, numbers, whitespace, punctuation)
+        text = re.sub(r'[^\w\s.,;:!?\'"()-]', '', text)
+        return text
+    
+
     async def async_initialize_tools(self):
         """Async wrapper to offload initialization to background threads."""
         
@@ -678,7 +689,7 @@ class CustomAIAgent(conversation.ConversationEntity):
             "top_p": self.entry.options.get("top_p", 0.9),
             "repeat_penalty": self.entry.options.get("repeat_penalty", 1.1),
             "num_predict": self.entry.options.get("num_predict", 512),
-            "mirostat": int(self.entry.options.get("mirostat", 0))
+            "draft_num_predict": int(self.entry.options.get("draft_num_predict", 2))
         }   
 
         selected_model = self.llm_model
@@ -759,7 +770,11 @@ class CustomAIAgent(conversation.ConversationEntity):
                                         full_thinking_out.append(raw_reasoning)
 
                                     if raw_content := delta.get("content"):
-                                        out_delta["content"] = raw_content
+                                        # Scrub the chunk before yielding it to Home Assistant
+                                        cleaned_chunk = self._clean_chunk(raw_content)
+                                        if cleaned_chunk:
+                                            out_delta["content"] = cleaned_chunk                             
+                                        # Keep the raw content for the final polished string later
                                         full_content_out.append(raw_content)
 
                                     if cloud_tools := delta.get("tool_calls"):
@@ -824,7 +839,12 @@ class CustomAIAgent(conversation.ConversationEntity):
                             full_thinking_out.append(thinking_trace)
                         
                         if content := msg.get("content"):
-                            delta["content"] = content
+                            # Scrub the chunk before yielding it to Home Assistant
+                            cleaned_chunk = self._clean_chunk(content)
+                            if cleaned_chunk:
+                                delta["content"] = cleaned_chunk
+                            
+                            # Keep the raw content for the final polished string later
                             full_content_out.append(content)
                             
                         if raw_tool_calls := msg.get("tool_calls"):
@@ -892,13 +912,13 @@ class CustomAIAgent(conversation.ConversationEntity):
                         )
                     )
 
-            # Attach tool calls to the HA chat log so the Debug UI can read them
-            if tool_calls_buffer and chat_log.content and isinstance(chat_log.content[-1], conversation.AssistantContent):
+            # Attach tool calls and scrub text
+            if chat_log.content and isinstance(chat_log.content[-1], conversation.AssistantContent):
                 old_msg = chat_log.content[-1]
                 chat_log.content[-1] = conversation.AssistantContent(
                     agent_id=old_msg.agent_id,
-                    content=old_msg.content,
-                    tool_calls=ha_tool_calls
+                    content=full_content if full_content else None, # Replaces stream fragments with polished text
+                    tool_calls=ha_tool_calls if tool_calls_buffer else old_msg.tool_calls
                 )
 
             messages.append(safe_message)

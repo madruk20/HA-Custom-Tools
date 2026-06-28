@@ -51,6 +51,7 @@
           "thinking": "Enable Thinking",
           "enable_streaming": "Stream Audio",
           "enable_parallel_tools": "Parellel Tool Calls",
+          "draft_num_predict": "Multi-Token Prediction",
           "temperature": "Temperature",
           "top_p": "Top P",
           "top_k": "Top K",
@@ -58,7 +59,6 @@
           "max_history": "Session Memory Limit",
           "num_ctx": "Context Window",
           "num_predict": "Max Tokens",
-          "mirostat": "Mirostat",
           "keep_alive": "Keep Alive (Minutes)"
         },
         "data_description": {
@@ -68,13 +68,13 @@
           "enable_streaming": "Streams response audio as soon as the first token is received.",
           "enable_parallel_tools": "Excecutes tools in parallel for models that support it.  Tool calls targeting the same device are still sequential.",
           "temperature": "Higher values make output more creative, lower values make it more focused and deterministic.",
+          "draft_num_predict": "Set model token prediction maximum.  Higer values can speed up inference.",
           "top_p": "Limits word choice to a percentage of the most probable options. Lower values increase focus.",
           "top_k": "Limits the AI to choosing from only the top K most likely next words.",
           "repeat_penalty": "Strictness against the AI repeating the same phrases. 1.0 = disabled.",
           "max_history": "The maximum number of previous messages to remember in a single conversation thread.",
           "num_ctx": "The max token context window the AI can use per request. Higher numbers require more VRAM.",
           "num_predict": "The maximum number of tokens the AI is allowed to generate in a single response.",
-          "mirostat": "An algorithm that actively maintains the quality and perplexity of generated text during long outputs.",
           "keep_alive": "How long Ollama should keep the models loaded in VRAM after a request (-1 for indefinite, 0 to unload immediately)."
         }
       },
