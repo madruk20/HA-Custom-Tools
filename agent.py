@@ -444,17 +444,13 @@ class CustomAIAgent(conversation.ConversationEntity):
         # 2. Convert standard markdown bullet points into natural pauses
         text = re.sub(r'^\s*-\s+', '', text, flags=re.MULTILINE)
         
-        # 3. TTS time-parsing regex (e.g., converting "3:00" to "3 AM")
-        text = re.sub(r'\b([1-9]|1[0-2]):00\b', r'\1 AM', text) 
-        
-        # 4. Strip Emojis and Special Symbols (Keeps letters, numbers, spaces, and punctuation)
+        # 3. Strip Emojis and Special Symbols (Keeps letters, numbers, spaces, and punctuation)
         text = re.sub(r'[^\w\s.,;:!?\'"()-]', '', text)
         
-        # 5. Clean up any accidental double spaces left behind by deleted characters
+        # 4. Clean up any accidental double spaces left behind by deleted characters
         text = re.sub(r' {2,}', ' ', text)
         
         return text.strip()
-
 
     def _clean_chunk(self, text: str) -> str:
         """Safely strips markdown and emojis from a partial stream chunk without losing spaces."""
