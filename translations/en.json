@@ -133,12 +133,14 @@
           "volume": "Alarm Volume",
           "media_player": "Target Media Player.  Some devices might not be supported.",
           "song": "Song or Playlist Name",
+          "wake_entity": "Wake Entity",
           "fallback_notify": "Fallback Mobile Phone (Requires Home Assistant App installed)"
         },
         "data_description": {
           "enabled": "Toggle this on to actively schedule the alarm for this room.",
           "volume": "Set the speaker volume for the alarm.  Some devices may not be supported.",
           "song": "Enter the exact track or playlist name for Music Assistant to play.",
+          "wake_entity": "Some devices require proxies to turn on using wake on lan.  You can enter the specific entity to wake the device here.  If the device is always on leave blank.",
           "fallback_notify": "Select a mobile device (Android or Iphone) to ping if the speaker fails to play the alarm.  Requires Mobile App integration."
         }
       }      

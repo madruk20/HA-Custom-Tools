@@ -68,25 +68,66 @@ class AlarmSystem:
 
         player_state = self.hass.states.get(player) if player else None
         
-        if player_state and player_state.state not in ["unavailable", "unknown", "off"]:
-            # --- 1. SNAPSHOT BEFORE DOING ANYTHING ---
-            pre_state_obj = self.hass.states.get(player)
-            pre_state = pre_state_obj.state if pre_state_obj else None
-            pre_title = pre_state_obj.attributes.get("media_title") if pre_state_obj else None
-            
-            # Save the original volume so we can restore it later
-            if pre_state_obj and "volume_level" in pre_state_obj.attributes:
-                self.original_volumes[player] = pre_state_obj.attributes.get("volume_level")
-            elif player not in self.original_volumes:
-                # Fallback to a safe normal volume if the speaker doesn't report it while idle
-                self.original_volumes[player] = 0.4
-
+        if player_state:
             try:
+                # --- THE GENERIC BOOT SEQUENCE ---
+                if player_state.state in ["off", "idle", "standby", "unavailable", "unknown"]:
+                    wake_entity = data.get("wake_entity")
+                    woke_something = False
+                    
+                    if wake_entity:
+                        # 1. User-Defined Generic Wake Action
+                        _LOGGER.info(f"⏰ ALARM SYSTEM: Triggering user-defined wake entity '{wake_entity}'...")
+                        try:
+                            # Using the universal 'homeassistant.turn_on' means the user can select 
+                            # a Script, a Scene, a Switch, or a Media Player
+                            await self.hass.services.async_call("homeassistant", "turn_on", {"entity_id": wake_entity})
+                            woke_something = True
+                        except Exception as e:
+                            _LOGGER.warning(f"⚠️ ALARM SYSTEM: Failed to trigger wake entity: {e}")
+                            
+                    else:
+                        # 2. Automatic Fallback: Look for physical hardware siblings
+                        ent_reg = er.async_get(self.hass)
+                        entity = ent_reg.async_get(player)
+                        
+                        if entity and entity.platform == "mass" and entity.device_id:
+                            for sibling in er.async_entries_for_device(ent_reg, entity.device_id):
+                                if sibling.domain == "media_player" and sibling.platform != "mass":
+                                    _LOGGER.info(f"🔍 ALARM SYSTEM: Attempting to wake hardware sibling -> {sibling.entity_id}")
+                                    try:
+                                        await self.hass.services.async_call("media_player", "turn_on", {"entity_id": sibling.entity_id})
+                                        woke_something = True
+                                    except Exception:
+                                        # Catch silently so unsupported devices don't crash the script
+                                        pass
+                                        
+                    if woke_something:
+                        # Give the hardware 10 seconds to boot and connect to Wi-Fi
+                        _LOGGER.info("⏰ ALARM SYSTEM: Waiting 10 seconds for hardware to boot...")
+                        await asyncio.sleep(10)
+                        
+                    # Refresh the state object so our snapshot uses the fresh, awake data
+                    player_state = self.hass.states.get(player)
+
+                # --- 1. SNAPSHOT BEFORE DOING ANYTHING ---
+                # We use the refreshed player_state for our snapshot
+                pre_state_obj = player_state
+                pre_state = pre_state_obj.state if pre_state_obj else None
+                pre_title = pre_state_obj.attributes.get("media_title") if pre_state_obj else None
+                
+                # Save the original volume so we can restore it later
+                if pre_state_obj and "volume_level" in pre_state_obj.attributes:
+                    self.original_volumes[player] = pre_state_obj.attributes.get("volume_level")
+                elif player not in self.original_volumes:
+                    # Fallback to a safe normal volume if the speaker doesn't report it while idle
+                    self.original_volumes[player] = 0.4
+
                 # 2. Set Alarm Volume
                 await self.hass.services.async_call("media_player", "volume_set", {"entity_id": player, "volume_level": volume})
                 
                 # 3. Attempt Music Assistant Playback
-                _LOGGER.info(f"⏰ ALARM SYSTEM: Triggering Music Assistant on '{player}' with song: {song}")
+                _LOGGER.info(f"⏰ ALARM SYSTEM: Triggering Music Assistant on '{player}' with item: {song}")
                 await self.hass.services.async_call("music_assistant", "play_media", {
                     "entity_id": player,
                     "media_id": song,

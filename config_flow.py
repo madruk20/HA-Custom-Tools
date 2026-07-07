@@ -646,7 +646,8 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 vol.Required("song", default=room_data.get("song", "")): selector.TextSelector(),
                 
-                # Replace EntitySelector with the dynamic SelectSelector
+                vol.Optional("wake_entity", description={"suggested_value": room_data.get("wake_entity", "")}): selector.EntitySelector(),
+                
                 vol.Required("fallback_notify", default=fallback_default): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=notify_options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
                 )
