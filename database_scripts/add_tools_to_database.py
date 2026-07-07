@@ -7,8 +7,8 @@ from qdrant_client.http.models import (
 )
 
 # --- Configuration ---
-QDRANT_URL = "http://localhost:6333"
-OLLAMA_URL = "http://localhost:11434/api/embeddings"
+QDRANT_URL = "http://192.168.4.23:6333"
+OLLAMA_URL = "http://192.168.4.23:11434/api/embeddings"
 OLLAMA_MODEL = "qwen-embed-2k:latest"
 COLLECTION_NAME = "tools_collection"
 DIMENSIONS = 1024
@@ -282,10 +282,10 @@ tools_to_add = [
     {
         "name": "alarm_manager",
         "desc": (
-            "alarm_manager - Use this tool to create, configure, modify, disable, or cancel wake-up alarms and schedule daily reminders across any area or device. "
+            "alarm_manager - Use this tool to create, configure, modify, check status, disable, or cancel wake-up alarms and schedule daily reminders across any area or device. "
             "Directly controls input_datetime configurations, state flags, and tracking helpers related to alarm entities. "
-            "Keywords: alarm, wake up, set alarm, cancel alarm, wake me up, turn off alarm, stop alarm, disable alarm, change alarm time. "
-            "Examples: 'Set my alarm for 4PM', 'Cancel my alarm', 'Turn off the bedroom alarm', 'Wake me up at 7 AM tomorrow', 'Disable the playroom alarm'."
+            "Keywords: alarm, wake up, set alarm, cancel alarm, wake me up, turn off alarm, stop alarm, disable alarm, change alarm time, alarm status, alarm time. "
+            "Examples: 'Set my alarm for 4PM', 'Cancel my alarm', 'Turn off the bedroom alarm', 'Wake me up at 7 AM tomorrow', 'Disable the playroom alarm', 'What time is my alarm set to?', 'Is my alarm enabled?'"
             "EXCLUSIONS: Do NOT use this tool for short culinary countdowns, laundry tracking, or stopwatch intervals."
         )
     },
