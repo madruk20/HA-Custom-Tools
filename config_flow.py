@@ -11,6 +11,8 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import NumberSelectorMode
@@ -49,7 +51,14 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
         """The Main Dashboard Menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["provider_settings", "tuning_settings", "tool_settings", "memory_settings", "finish"]
+            menu_options=[
+                "provider_settings", 
+                "tuning_settings", 
+                "tool_settings", 
+                "memory_settings", 
+                "alarm_settings",
+                "finish",
+            ]
         )
 
     async def async_step_provider_settings(self, user_input=None):
@@ -512,6 +521,137 @@ class AIToolsOptionsFlowHandler(config_entries.OptionsFlow):
                         )
                 ),
             })
+        )
+
+    async def async_step_alarm_settings(self, user_input=None):
+        """Dynamic room selection menu."""
+        if user_input is not None:
+            self.selected_alarm_room = user_input["room"]
+            return await self.async_step_alarm_configure_room()
+
+        area_reg = ar.async_get(self.hass)
+        ha_areas = area_reg.async_list_areas()
+        
+        # Build the dropdown dynamically based on actual hardware layout
+        room_options = [{"value": area.name.lower().strip(), "label": area.name} for area in ha_areas]
+
+        return self.async_show_form(
+            step_id="alarm_settings",
+            data_schema=vol.Schema({
+                vol.Required("room"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=room_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                )
+            })
+        )
+
+    async def async_step_alarm_configure_room(self, user_input=None):
+        room = self.selected_alarm_room
+        alarms_config = {k: dict(v) for k, v in self._options.get("alarms_config", {}).items()}
+        room_data = alarms_config.get(room, {})
+
+        if user_input is not None:
+            # INTERCEPT "NONE" SELECTION AND WIPE IT BLANK
+            if user_input.get("fallback_notify") == "none":
+                user_input["fallback_notify"] = ""
+                
+            alarms_config[room] = user_input
+            new_options = dict(self._options)
+            new_options["alarms_config"] = alarms_config
+            self._options = new_options
+            return await self.async_step_init()
+
+        # --- DYNAMIC MEDIA PLAYER FILTERING ---
+        area_reg = ar.async_get(self.hass)
+        dev_reg = dr.async_get(self.hass)
+        ent_reg = er.async_get(self.hass)
+
+        target_area_id = None
+        for area in area_reg.async_list_areas():
+            if area.name.lower().strip() == room:
+                target_area_id = area.id
+                break
+
+        raw_media_players = []
+        if target_area_id:
+            for entity in er.async_entries_for_area(ent_reg, target_area_id):
+                # Ignore hidden entities or background helpers
+                if entity.domain == "media_player" and not entity.hidden and not entity.entity_category:
+                    raw_media_players.append(entity)
+                    
+            for device in dr.async_entries_for_area(dev_reg, target_area_id):
+                for entity in er.async_entries_for_device(ent_reg, device.id):
+                    if entity.domain == "media_player" and not entity.hidden and not entity.entity_category:
+                        raw_media_players.append(entity)
+
+        # Remove duplicates
+        unique_mps = {e.entity_id: e for e in raw_media_players}.values()
+
+        # Isolate Music Assistant Players
+        ma_players = []
+        for e in unique_mps:
+            # Check native platform registration or custom attributes
+            if e.platform == "mass":
+                ma_players.append(e.entity_id)
+            else:
+                state = self.hass.states.get(e.entity_id)
+                if state and "mass_player_id" in state.attributes:
+                    ma_players.append(e.entity_id)
+
+        # Build dropdown options using friendly names and tag MA players
+        mp_options = []
+        for e in unique_mps:
+            state = self.hass.states.get(e.entity_id)
+            name = state.name if state else e.entity_id
+            
+            # Tag Music Assistant players so the user knows which is which
+            is_ma = e.platform == "mass" or (state and "mass_player_id" in state.attributes)
+            if is_ma:
+                name = f"{name} (Music Assistant)"
+                
+            mp_options.append({"value": e.entity_id, "label": name})
+
+        if not mp_options:
+            mp_options = [{"value": "", "label": "No media players found in this room"}]
+            
+        # --- DYNAMIC NOTIFY FILTERING ---
+        notify_options = [{"value": "none", "label": "🚫 None (Disable Fallback)"}]
+        current_fallback = room_data.get("fallback_notify", "")
+        
+        # Correctly iterate through the registry values to filter by domain
+        for entity in ent_reg.entities.values():
+            if entity.domain == "notify" and not entity.hidden:
+                state = self.hass.states.get(entity.entity_id)
+                name = state.name if state else (entity.name or entity.original_name or entity.entity_id)
+                notify_options.append({"value": entity.entity_id, "label": name})
+                
+        # Inject the current fallback if it's a legacy service not caught by the entity registry
+        if current_fallback and current_fallback != "none" and not any(opt["value"] == current_fallback for opt in notify_options):
+            notify_options.append({"value": current_fallback, "label": current_fallback})
+            
+        fallback_default = current_fallback if current_fallback else "none"
+
+        return self.async_show_form(
+            step_id="alarm_configure_room",
+            data_schema=vol.Schema({
+                vol.Required("enabled", default=room_data.get("enabled", False)): selector.BooleanSelector(),
+                vol.Required("time", default=room_data.get("time", "07:00:00")): selector.TimeSelector(),
+                vol.Required("volume", default=room_data.get("volume", 0.7)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0.0, max=1.0, step=0.1, mode=selector.NumberSelectorMode.SLIDER)
+                ),
+                vol.Required("media_player", default=room_data.get("media_player", mp_options[0]["value"])): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=mp_options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                ),
+                vol.Required("song", default=room_data.get("song", "")): selector.TextSelector(),
+                
+                # Replace EntitySelector with the dynamic SelectSelector
+                vol.Required("fallback_notify", default=fallback_default): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=notify_options, mode=selector.SelectSelectorMode.DROPDOWN, custom_value=True)
+                )
+            }),
+            description_placeholders={"room_name": room.title()}
         )
 
     async def async_step_finish(self, user_input=None):

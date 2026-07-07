@@ -9,6 +9,7 @@
           "tuning_settings": "🎛️ Context & Parameters",
           "tool_settings": "🛠️ Tool & Device Management",
           "memory_settings": "🧠 Memory Settings",
+          "alarm_settings": "⏰ Wake Up Alarms",
           "finish": "✅ Save & Reload Integration"
         }
       },
@@ -115,7 +116,32 @@
           "memory_injection_limit": "Maximum number of total facts/memories per collection injected into a single prompt turn. (Default: 3)",
           "memory_cosine_threshold": "Minimum confidence score for a memory/fact to be considered relevant. (Default: 0.50)"
         }
-      }
+      },
+      "alarm_settings": {
+        "title": "⏰ Wake Up Alarms",
+        "description": "Select a room to configure its automated wake up alarm.",
+        "data": {
+          "room": "Target Room"
+        }
+      },
+      "alarm_configure_room": {
+        "title": "⏰ Configure Alarm {room_name}",
+        "description": "Set the alarm parameters for the {room_name}.",
+        "data": {
+          "enabled": "Enable Alarm",
+          "time": "Alarm Time",
+          "volume": "Alarm Volume",
+          "media_player": "Target Media Player.  Some devices might not be supported.",
+          "song": "Song or Playlist Name",
+          "fallback_notify": "Fallback Mobile Phone (Requires Home Assistant App installed)"
+        },
+        "data_description": {
+          "enabled": "Toggle this on to actively schedule the alarm for this room.",
+          "volume": "Set the speaker volume for the alarm.  Some devices may not be supported.",
+          "song": "Enter the exact track or playlist name for Music Assistant to play.",
+          "fallback_notify": "Select a mobile device (Android or Iphone) to ping if the speaker fails to play the alarm.  Requires Mobile App integration."
+        }
+      }      
     }
   }
 }

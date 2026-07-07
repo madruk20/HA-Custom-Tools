@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 import homeassistant.helpers.llm as ha_llm
 
 from .tools.music import register_media_service
+from .alarm_system import AlarmSystem
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def _load_env_vars():
                     os.environ[key.strip()] = value.strip().strip('"').strip("'")
 
 # =====================================================================
-# ⚙️ GLOBAL BASE PROMPT OVERRIDES
+# GLOBAL BASE PROMPT OVERRIDES
 # =====================================================================
 def _apply_global_prompt_patches():
     """Wipe the native instructions from the core source module directly."""
@@ -48,6 +49,7 @@ def _apply_global_prompt_patches():
 
     ha_llm.AssistAPI._async_get_voice_satellite_area_prompt = _empty_area_prompt
 
+
 async def async_setup(hass: HomeAssistant, config: dict):
     """Initial boot setup."""
     await hass.async_add_executor_job(_load_env_vars)
@@ -57,14 +59,15 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up the Custom AI Agent from a UI Config Entry."""
-    
-    # 1. Forward the setup to conversation.py to register it as an official entity
     await hass.config_entries.async_forward_entry_setups(entry, ["conversation", "ai_task"])
     
-    # 2. Listen for options updates from the config flow UI
-    entry.async_on_unload(entry.add_update_listener(async_update_options))
+    hass.data.setdefault(DOMAIN, {})
+    alarm_system = AlarmSystem(hass, entry)
+    await alarm_system.async_start()
     
-    _LOGGER.info("✅ AI Tools Agent UI Setup Complete.")
+    hass.data[DOMAIN][entry.entry_id] = {"alarm_system": alarm_system}
+    
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
     return True
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -72,5 +75,9 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
+    """Unload a config entry and kill background tasks."""
+    if entry.entry_id in hass.data.get(DOMAIN, {}):
+        alarm_system = hass.data[DOMAIN][entry.entry_id]["alarm_system"]
+        await alarm_system.async_unload()
+        
     return await hass.config_entries.async_unload_platforms(entry, ["conversation", "ai_task"])
